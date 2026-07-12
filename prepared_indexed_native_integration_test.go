@@ -14,6 +14,7 @@ import (
 
 	"github.com/gogpu/gputypes"
 	"github.com/gogpu/wgpu"
+	_ "github.com/gogpu/wgpu/hal/allbackends"
 )
 
 // TestPreparedIndexedNativeParity is an opt-in, strict-backend proof of the
