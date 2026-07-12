@@ -85,8 +85,14 @@ fn fs(@location(0) first_instance: u32) -> @location(0) vec4<f32> {
 		t.Fatalf("create parity shader: %v", err)
 	}
 	defer shader.Release()
+	layout, err := device.CreatePipelineLayout(&wgpu.PipelineLayoutDescriptor{Label: "prepared indexed parity layout"})
+	if err != nil {
+		t.Fatalf("create parity pipeline layout: %v", err)
+	}
+	defer layout.Release()
 	pipeline, err := device.CreateRenderPipeline(&wgpu.RenderPipelineDescriptor{
-		Label: "prepared indexed parity pipeline",
+		Label:  "prepared indexed parity pipeline",
+		Layout: layout,
 		Vertex: wgpu.VertexState{Module: shader, EntryPoint: "vs", Buffers: []gputypes.VertexBufferLayout{{
 			ArrayStride: 8, StepMode: gputypes.VertexStepModeVertex,
 			Attributes: []gputypes.VertexAttribute{{Format: gputypes.VertexFormatFloat32x2, Offset: 0, ShaderLocation: 0}},
