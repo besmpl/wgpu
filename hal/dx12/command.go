@@ -337,6 +337,12 @@ func (e *CommandEncoder) CopyTextureToBuffer(src hal.Texture, dst hal.Buffer, re
 		return
 	}
 
+	// A render target cannot be used as a copy source without an explicit
+	// transition. Internal textures are implicitly promoted from COMMON to
+	// RENDER_TARGET at pass begin, so use the tracked state as the barrier's
+	// source state here.
+	e.transitionTextureIfNeeded(srcTex, d3d12.D3D12_RESOURCE_STATE_COPY_SOURCE)
+
 	// Transition destination buffer to COPY_DEST if needed.
 	e.transitionBufferIfNeeded(dstBuf, d3d12.D3D12_RESOURCE_STATE_COPY_DEST)
 
@@ -522,6 +528,12 @@ func (e *CommandEncoder) BeginRenderPass(desc *hal.RenderPassDescriptor) hal.Ren
 				d3d12.D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
 			)
 			e.cmdList.ResourceBarrier(1, &barrier)
+			view.texture.currentState = d3d12.D3D12_RESOURCE_STATE_RENDER_TARGET
+		} else {
+			// Internal textures are implicitly promoted from COMMON on their
+			// first render-target use. Record that promotion so a later copy
+			// emits the required RENDER_TARGET -> COPY_SOURCE barrier.
+			e.transitionTextureIfNeeded(view.texture, d3d12.D3D12_RESOURCE_STATE_RENDER_TARGET)
 		}
 	}
 
@@ -714,6 +726,7 @@ func (e *RenderPassEncoder) End() {
 				d3d12.D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES,
 			)
 			e.encoder.cmdList.ResourceBarrier(1, &barrier)
+			msaaView.texture.currentState = d3d12.D3D12_RESOURCE_STATE_PRESENT
 		}
 	}
 }
@@ -1149,6 +1162,44 @@ func (e *CommandEncoder) transitionBufferIfNeeded(buf *Buffer, targetState d3d12
 		"from", buf.currentState,
 		"to", targetState)
 	buf.currentState = targetState
+}
+
+// transitionTextureIfNeeded inserts a transition barrier for a texture and
+// updates its tracked state. COMMON -> RENDER_TARGET is an implicit promotion
+// for DEFAULT textures, so that first-use transition only updates bookkeeping.
+func (e *CommandEncoder) transitionTextureIfNeeded(tex *Texture, targetState d3d12.D3D12_RESOURCE_STATES) {
+	if tex == nil || tex.raw == nil || tex.currentState == targetState {
+		return
+	}
+	if !needsExplicitTextureBarrier(tex.currentState, targetState) {
+		tex.currentState = targetState
+		return
+	}
+
+	barrier := d3d12.NewTransitionBarrier(tex.raw, tex.currentState, targetState,
+		d3d12.D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES)
+	transitionTextureResourceBarrier(e.cmdList, &barrier)
+	hal.Logger().Debug("dx12: texture state transition",
+		"label", e.label,
+		"from", tex.currentState,
+		"to", targetState)
+	tex.currentState = targetState
+}
+
+// transitionTextureResourceBarrier is a narrow test seam around the native
+// call used by transitionTextureIfNeeded.
+var transitionTextureResourceBarrier = func(list *d3d12.ID3D12GraphicsCommandList, barrier *d3d12.D3D12_RESOURCE_BARRIER) {
+	list.ResourceBarrier(1, barrier)
+}
+
+func needsExplicitTextureBarrier(current, target d3d12.D3D12_RESOURCE_STATES) bool {
+	if current == target {
+		return false
+	}
+	if current == d3d12.D3D12_RESOURCE_STATE_COMMON && target == d3d12.D3D12_RESOURCE_STATE_RENDER_TARGET {
+		return false
+	}
+	return true
 }
 
 // transitionBuffersForCopy inserts batched transition barriers for a source and
