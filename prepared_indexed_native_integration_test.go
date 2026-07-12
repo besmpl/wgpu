@@ -149,13 +149,14 @@ fn fs(@location(0) first_instance: u32) -> @location(0) vec4<f32> {
 
 	preparedPixels := recordPreparedTarget(t, device, queue, pipeline, vertex, index, indirect)
 	oraclePixels := recordOracleTarget(t, device, queue, pipeline, vertex, index, indirect)
-	assertParityColors(t, preparedPixels)
+	assertParityColors(t, preparedPixels, "prepared")
+	assertParityColors(t, oraclePixels, "oracle")
 	if !bytes.Equal(preparedPixels, oraclePixels) {
 		t.Fatal("prepared indexed readback differs from two individual indexed-indirect draws")
 	}
 }
 
-func assertParityColors(t *testing.T, pixels []byte) {
+func assertParityColors(t *testing.T, pixels []byte, label string) {
 	t.Helper()
 	var red, green bool
 	for row := 0; row < 4; row++ {
@@ -166,7 +167,7 @@ func assertParityColors(t *testing.T, pixels []byte) {
 		}
 	}
 	if !red || !green {
-		t.Fatalf("prepared indexed output colors red=%t green=%t; records were not both visibly consumed", red, green)
+		t.Fatalf("%s indexed output colors red=%t green=%t; records were not both visibly consumed", label, red, green)
 	}
 }
 
