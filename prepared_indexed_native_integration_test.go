@@ -149,16 +149,17 @@ fn fs(@location(0) first_instance: u32) -> @location(0) vec4<f32> {
 
 	preparedPixels := recordPreparedTarget(t, device, queue, pipeline, vertex, index, indirect)
 	oraclePixels := recordOracleTarget(t, device, queue, pipeline, vertex, index, indirect)
-	assertParityColors(t, preparedPixels, "prepared")
-	assertParityColors(t, oraclePixels, "oracle")
+	preparedRed, preparedGreen := parityColors(preparedPixels)
+	oracleRed, oracleGreen := parityColors(oraclePixels)
+	if !preparedRed || !preparedGreen || !oracleRed || !oracleGreen {
+		t.Fatalf("prepared colors red=%t green=%t; oracle colors red=%t green=%t; records were not both visibly consumed", preparedRed, preparedGreen, oracleRed, oracleGreen)
+	}
 	if !bytes.Equal(preparedPixels, oraclePixels) {
 		t.Fatal("prepared indexed readback differs from two individual indexed-indirect draws")
 	}
 }
 
-func assertParityColors(t *testing.T, pixels []byte, label string) {
-	t.Helper()
-	var red, green bool
+func parityColors(pixels []byte) (red, green bool) {
 	for row := 0; row < 4; row++ {
 		for column := 0; column < 4; column++ {
 			pixel := pixels[row*256+column*4:]
@@ -166,9 +167,7 @@ func assertParityColors(t *testing.T, pixels []byte, label string) {
 			green = green || pixel[1] > 200 && pixel[0] < 40
 		}
 	}
-	if !red || !green {
-		t.Fatalf("%s indexed output colors red=%t green=%t; records were not both visibly consumed", label, red, green)
-	}
+	return red, green
 }
 
 func recordPreparedTarget(t *testing.T, device *wgpu.Device, queue *wgpu.Queue, pipeline *wgpu.RenderPipeline, vertex, index, indirect *wgpu.Buffer) []byte {
