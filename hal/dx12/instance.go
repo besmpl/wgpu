@@ -23,6 +23,7 @@ package dx12
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"unsafe"
 
@@ -33,6 +34,12 @@ import (
 	"github.com/gogpu/wgpu/hal/dx12/d3d12"
 	"github.com/gogpu/wgpu/hal/dx12/dxgi"
 )
+
+const dx12WarpEnv = "GOGPU_DX12_WARP"
+
+func shouldEnumerateWarp(adapterCount int) bool {
+	return adapterCount == 0 && os.Getenv(dx12WarpEnv) == "1"
+}
 
 // Backend implements hal.Backend for DirectX 12.
 type Backend struct{}
@@ -237,7 +244,51 @@ func (i *Instance) EnumerateAdapters(surfaceHint hal.Surface) []hal.ExposedAdapt
 		adapters = append(adapters, exposed)
 	}
 
+	if shouldEnumerateWarp(len(adapters)) {
+		if warp, ok := i.enumerateWarpAdapter(); ok {
+			adapters = append(adapters, warp)
+		}
+	}
+
 	return adapters
+}
+
+// enumerateWarpAdapter returns the WARP adapter when explicitly requested.
+// WARP is a last-resort fallback for machines without a usable hardware
+// adapter; normal enumeration never exposes software adapters.
+func (i *Instance) enumerateWarpAdapter() (hal.ExposedAdapter, bool) {
+	raw, err := i.factory.EnumWarpAdapter()
+	if err != nil {
+		hal.Logger().Warn("dx12: WARP adapter requested but unavailable", "err", err)
+		return hal.ExposedAdapter{}, false
+	}
+
+	desc, err := raw.GetDesc1()
+	if err != nil {
+		raw.Release()
+		hal.Logger().Warn("dx12: failed to describe WARP adapter", "err", err)
+		return hal.ExposedAdapter{}, false
+	}
+
+	adapter := &Adapter{
+		raw:      raw,
+		desc:     desc,
+		instance: i,
+	}
+
+	if err := adapter.probeCapabilities(); err != nil {
+		raw.Release()
+		hal.Logger().Warn("dx12: WARP adapter does not support D3D12", "err", err)
+		return hal.ExposedAdapter{}, false
+	}
+
+	exposed := adapter.toExposedAdapter()
+	hal.Logger().Info("dx12: WARP adapter found",
+		"name", exposed.Info.Name,
+		"type", exposed.Info.DeviceType,
+		"vendorID", fmt.Sprintf("0x%04X", exposed.Info.VendorID),
+	)
+	return exposed, true
 }
 
 // enumerateAdaptersLegacy uses the legacy IDXGIFactory1 enumeration method.

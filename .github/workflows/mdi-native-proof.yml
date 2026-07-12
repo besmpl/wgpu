@@ -1,0 +1,91 @@
+name: MDI Native Proof
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  CGO_ENABLED: 0
+
+jobs:
+  vulkan-lavapipe:
+    name: Public MDI proof (Vulkan/lavapipe)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Install lavapipe
+        shell: bash
+        run: |
+          set -euxo pipefail
+          sudo apt-get update
+          sudo apt-get install -y mesa-vulkan-drivers vulkan-tools
+          icd="$(find /usr/share/vulkan/icd.d -maxdepth 1 -type f -name '*lvp*.json' -print -quit)"
+          test -n "$icd"
+          echo "VK_ICD_FILENAMES=$icd" >> "$GITHUB_ENV"
+          echo "VK_DRIVER_FILES=$icd" >> "$GITHUB_ENV"
+
+      - name: Print Vulkan diagnostics
+        shell: bash
+        run: |
+          set +e
+          echo "VK_ICD_FILENAMES=${VK_ICD_FILENAMES:-}"
+          echo "VK_DRIVER_FILES=${VK_DRIVER_FILES:-}"
+          vulkaninfo --summary
+          rc=$?
+          echo "vulkaninfo exit=$rc"
+          exit 0
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run public Vulkan proof
+        shell: bash
+        env:
+          WGPU_PREPARED_INDEXED_PROOF_BACKEND: Vulkan
+        run: timeout --signal=TERM 10m go test -timeout 9m -run '^TestPreparedIndexedNativeParity$' -count=1 .
+
+  dx12-warp:
+    name: Public MDI proof (DX12/WARP)
+    runs-on: windows-2022
+    timeout-minutes: 15
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.25'
+          cache: true
+
+      - name: Print DirectX diagnostics
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Continue'
+          Write-Host "OS: $([System.Environment]::OSVersion.VersionString)"
+          Get-CimInstance Win32_VideoController | Select-Object Name, DriverVersion, VideoProcessor, AdapterRAM | Format-List
+          Get-Command dxdiag -ErrorAction SilentlyContinue
+
+      - name: Download dependencies
+        run: go mod download
+
+      - name: Run public DX12 WARP proof
+        shell: pwsh
+        env:
+          GOGPU_DX12_WARP: '1'
+          WGPU_PREPARED_INDEXED_PROOF_BACKEND: DX12
+        run: go test -timeout 9m -run '^TestPreparedIndexedNativeParity$' -count=1 .
