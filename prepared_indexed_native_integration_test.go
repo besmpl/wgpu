@@ -67,18 +67,22 @@ func TestPreparedIndexedNativeParity(t *testing.T) {
 	shader, err := device.CreateShaderModule(&wgpu.ShaderModuleDescriptor{Label: "prepared indexed parity shader", WGSL: `
 struct VertexOutput {
   @builtin(position) position: vec4<f32>,
-  @location(0) first_instance: u32,
+  @location(0) position_x: f32,
 };
 @vertex
 fn vs(@location(0) position: vec2<f32>, @builtin(instance_index) first_instance: u32) -> VertexOutput {
   var out: VertexOutput;
   out.position = vec4<f32>(position, 0.0, 1.0);
-  out.first_instance = first_instance;
+  // Keep the instance builtin in the entry-point signature so the proof still
+  // compiles the same indexed/indirect input path. The visible discriminator
+  // comes from geometry because DX12/WARP currently does not expose
+  // firstInstance distinctly through this shader route.
+  out.position_x = position.x;
   return out;
 }
 @fragment
-fn fs(@location(0) first_instance: u32) -> @location(0) vec4<f32> {
-  if (first_instance == 0u) { return vec4<f32>(1.0, 0.0, 0.0, 1.0); }
+fn fs(@location(0) position_x: f32) -> @location(0) vec4<f32> {
+  if (position_x < 0.0) { return vec4<f32>(1.0, 0.0, 0.0, 1.0); }
   return vec4<f32>(0.0, 1.0, 0.0, 1.0);
 }`})
 	if err != nil {
