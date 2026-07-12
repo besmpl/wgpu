@@ -18,9 +18,12 @@ import (
 // This follows the wgpu-rs pattern where Option<CommandBuffer> presence
 // indicates recording state, rather than a separate boolean flag.
 type CommandEncoder struct {
-	device    *Device
-	cmdBuffer ID
-	label     string
+	device         *Device
+	cmdBuffer      ID
+	label          string
+	generation     uint64
+	prepared       []*preparedIndexedCommands
+	preparedArenas []*preparedIndexedArena
 }
 
 // IsRecording returns true if the encoder has an active command buffer.
@@ -36,6 +39,7 @@ func (e *CommandEncoder) BeginEncoding(label string) error {
 		return fmt.Errorf("metal: encoder is already recording")
 	}
 	e.label = label
+	e.generation++
 
 	// Scoped autorelease pool — drain immediately after creating the command buffer.
 	// The command buffer is Retained so it survives the pool drain.
@@ -64,8 +68,10 @@ func (e *CommandEncoder) EndEncoding() (hal.CommandBuffer, error) {
 	if e.cmdBuffer == 0 {
 		return nil, fmt.Errorf("metal: command encoder is not recording")
 	}
-	cb := &CommandBuffer{raw: e.cmdBuffer, device: e.device}
+	cb := &CommandBuffer{raw: e.cmdBuffer, device: e.device, prepared: e.prepared, preparedArenas: e.preparedArenas}
 	e.cmdBuffer = 0 // Recording state becomes false
+	e.prepared = nil
+	e.preparedArenas = nil
 	hal.Logger().Debug("metal: encoding ended")
 	return cb, nil
 }
@@ -78,13 +84,43 @@ func (e *CommandEncoder) DiscardEncoding() {
 		Release(e.cmdBuffer)
 		e.cmdBuffer = 0 // Recording state becomes false
 	}
+	for _, prepared := range e.prepared {
+		prepared.release()
+	}
+	e.prepared = nil
+	for _, arena := range e.preparedArenas {
+		arena.release()
+	}
+	e.preparedArenas = nil
 }
 
 // ResetAll resets command buffers for reuse.
-func (e *CommandEncoder) ResetAll(_ []hal.CommandBuffer) {}
+func (e *CommandEncoder) ResetAll(commandBuffers []hal.CommandBuffer) {
+	for _, raw := range commandBuffers {
+		if cb, ok := raw.(*CommandBuffer); ok && cb != nil {
+			cb.Destroy()
+		}
+	}
+}
 
 // Destroy is a no-op for Metal (command buffers are managed by MTLCommandQueue).
-func (e *CommandEncoder) Destroy() {}
+func (e *CommandEncoder) Destroy() {
+	if e == nil {
+		return
+	}
+	for _, prepared := range e.prepared {
+		prepared.release()
+	}
+	e.prepared = nil
+	for _, arena := range e.preparedArenas {
+		arena.release()
+	}
+	e.preparedArenas = nil
+	if e.cmdBuffer != 0 {
+		Release(e.cmdBuffer)
+		e.cmdBuffer = 0
+	}
+}
 
 // TransitionBuffers transitions buffer states for synchronization.
 func (e *CommandEncoder) TransitionBuffers(_ []hal.BufferBarrier) {}
@@ -370,9 +406,11 @@ func (e *CommandEncoder) BeginComputePass(desc *hal.ComputePassDescriptor) hal.C
 
 // CommandBuffer implements hal.CommandBuffer for Metal.
 type CommandBuffer struct {
-	raw      ID
-	device   *Device
-	drawable ID // Attached drawable for presentation
+	raw            ID
+	device         *Device
+	drawable       ID // Attached drawable for presentation
+	prepared       []*preparedIndexedCommands
+	preparedArenas []*preparedIndexedArena
 }
 
 // Destroy releases the command buffer.
@@ -381,6 +419,14 @@ func (cb *CommandBuffer) Destroy() {
 		Release(cb.raw)
 		cb.raw = 0
 	}
+	for _, prepared := range cb.prepared {
+		prepared.release()
+	}
+	cb.prepared = nil
+	for _, arena := range cb.preparedArenas {
+		arena.release()
+	}
+	cb.preparedArenas = nil
 }
 
 // SetDrawable attaches a drawable for presentation.

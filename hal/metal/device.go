@@ -37,7 +37,8 @@ type Device struct {
 	// textures are physically identical to Private but allow setPurgeableState(empty)
 	// and direct CPU writes without a staging blit, which eliminates the main source
 	// of resize-induced memory growth.
-	hasUnifiedMemory bool
+	hasUnifiedMemory           bool
+	preparedIndexedTranslators map[preparedIndexedTranslatorKey]preparedIndexedTranslator
 }
 
 // newDevice creates a new Device from a Metal device.
@@ -1254,6 +1255,7 @@ func (d *Device) WaitIdle() error {
 // Destroy releases the device and associated resources.
 func (d *Device) Destroy() {
 	hal.Logger().Debug("metal: device destroyed")
+	d.releasePreparedIndexedTranslators()
 	if d.eventListener != 0 {
 		Release(d.eventListener)
 		d.eventListener = 0

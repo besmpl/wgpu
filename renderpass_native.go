@@ -37,7 +37,9 @@ type RenderPassEncoder struct {
 	requiredVertexBuffers uint32
 	// indexBufferSet tracks whether SetIndexBuffer has been called.
 	// DrawIndexed and DrawIndexedIndirect require an index buffer.
-	indexBufferSet bool
+	indexBufferSet    bool
+	indexBuffer       *Buffer
+	indexBufferOffset uint64
 	// indexBufferFormat stores the format passed to the most recent SetIndexBuffer call.
 	// Used to validate against the pipeline's StripIndexFormat at DrawIndexed/DrawIndexedIndirect time.
 	// Matches Rust wgpu-core State.index.buffer_format (render.rs:568-582).
@@ -139,6 +141,8 @@ func (p *RenderPassEncoder) SetIndexBuffer(buffer *Buffer, format IndexFormat, o
 		return
 	}
 	p.indexBufferSet = true
+	p.indexBuffer = buffer
+	p.indexBufferOffset = offset
 	p.indexBufferFormat = format
 	p.trackRef(buffer.core.Ref)
 	p.encoder.trackBuffer(buffer)

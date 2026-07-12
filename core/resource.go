@@ -117,6 +117,11 @@ type Device struct {
 	// Once a device is destroyed, this becomes false.
 	valid *atomic.Bool
 
+	// generation identifies the lifetime of this logical device. Prepared
+	// command tokens capture it so a token cannot outlive a device loss even if
+	// the same Device pointer is retained by a caller.
+	generation *atomic.Uint64
+
 	// errorScopeManager manages the error scope stack for this device.
 	// Initialized lazily on first use. This is a plain pointer because
 	// Device is passed by value in the legacy ID-based API, which
@@ -174,6 +179,9 @@ func NewDevice(
 	valid := &atomic.Bool{}
 	valid.Store(true)
 	d.valid = valid
+	generation := &atomic.Uint64{}
+	generation.Store(1)
+	d.generation = generation
 
 	// Initialize indirect dispatch validation. This creates an internal compute
 	// pipeline that validates workgroup counts before each DispatchIndirect call,
@@ -215,6 +223,15 @@ func (d *Device) IsValid() bool {
 	return d.valid.Load()
 }
 
+// Generation returns the current lifetime generation of the device. A zero
+// value denotes a legacy ID-only Device with no HAL lifetime state.
+func (d *Device) Generation() uint64 {
+	if d == nil || d.generation == nil {
+		return 0
+	}
+	return d.generation.Load()
+}
+
 // SnatchLock returns the device's snatch lock for resource coordination.
 //
 // The snatch lock must be held when accessing the raw HAL device or
@@ -234,8 +251,10 @@ func (d *Device) SnatchLock() *SnatchLock {
 // marks the device as invalid.
 func (d *Device) Destroy() {
 	// Mark as invalid first to prevent new operations
-	if d.valid != nil {
-		d.valid.Store(false)
+	if d.valid != nil && d.valid.CompareAndSwap(true, false) {
+		if d.generation != nil {
+			d.generation.Add(1)
+		}
 	}
 
 	untrackResource(uintptr(unsafe.Pointer(d))) //nolint:gosec // debug tracking uses pointer as unique ID

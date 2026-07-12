@@ -922,6 +922,28 @@ func (e *RenderPassEncoder) DrawIndexedIndirect(buffer hal.Buffer, offset uint64
 	)
 }
 
+// executePreparedIndexed uses one ExecuteIndirect operation for a prepared
+// range of tightly packed indexed draw records.
+func (e *RenderPassEncoder) executePreparedIndexed(buffer hal.Buffer, offset uint64, count uint32) error {
+	buf, ok := buffer.(*Buffer)
+	if !ok || !e.encoder.isRecording || count == 0 {
+		return fmt.Errorf("dx12: invalid prepared indexed command")
+	}
+
+	preparedIndexedExecuteIndirect(
+		e.encoder.cmdList,
+		e.encoder.device.cmdSignatures.drawIndexed,
+		count, buf.raw, offset, nil, 0,
+	)
+	return nil
+}
+
+// preparedIndexedExecuteIndirect is a narrow test seam for asserting the
+// exact ExecuteIndirect count/stride contract without a live D3D12 device.
+var preparedIndexedExecuteIndirect = func(list *d3d12.ID3D12GraphicsCommandList, signature *d3d12.ID3D12CommandSignature, count uint32, buffer *d3d12.ID3D12Resource, offset uint64, countBuffer *d3d12.ID3D12Resource, countOffset uint64) {
+	list.ExecuteIndirect(signature, count, buffer, offset, countBuffer, countOffset)
+}
+
 // ExecuteBundle executes a pre-recorded render bundle.
 func (e *RenderPassEncoder) ExecuteBundle(bundle hal.RenderBundle) {
 	// Note: DX12 bundles use ID3D12GraphicsCommandList created with D3D12_COMMAND_LIST_TYPE_BUNDLE.

@@ -96,6 +96,10 @@ type Device struct {
 	// AMD/NVIDIA vary. Queried during initAllocator.
 	timestampPeriod float32
 
+	// maxDrawIndirectCount is the physical-device limit for one indexed
+	// indirect operation. Zero keeps the prepared route unsupported.
+	maxDrawIndirectCount uint32
+
 	// mappedMemory tracks persistently mapped VkDeviceMemory objects.
 	// Vulkan only allows one active vkMapMemory per VkDeviceMemory;
 	// with suballocation multiple buffers share the same VkDeviceMemory,
