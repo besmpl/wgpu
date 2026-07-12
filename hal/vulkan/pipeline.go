@@ -24,6 +24,15 @@ func (d *Device) CreateRenderPipeline(desc *hal.RenderPipelineDescriptor) (hal.R
 	if desc == nil {
 		return nil, fmt.Errorf("BUG: render pipeline descriptor is nil in Vulkan.CreateRenderPipeline — core validation gap")
 	}
+	// Vulkan requires a valid pipeline layout whenever a graphics pipeline has
+	// shader stages. Unlike WebGPU's browser/Rust implementations, this native
+	// HAL does not derive automatic layouts from shader reflection. Rejecting a
+	// nil layout here prevents forwarding VK_NULL_HANDLE to
+	// VkGraphicsPipelineCreateInfo, which is invalid and can crash drivers
+	// (notably lavapipe and MoltenVK) instead of returning a VkResult.
+	if desc.Layout == nil {
+		return nil, fmt.Errorf("vulkan: render pipeline layout is required (automatic layouts are not supported)")
+	}
 
 	// Get pipeline layout
 	var pipelineLayout vk.PipelineLayout
