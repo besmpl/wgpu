@@ -10,9 +10,9 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
 	naga "github.com/gogpu/naga"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // ErrComputeRequiresSPIRV indicates that a compute pipeline requires a shader

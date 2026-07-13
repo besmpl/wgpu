@@ -5,8 +5,8 @@ package vulkan
 import (
 	"fmt"
 
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 )
 
 // QuerySet implements hal.QuerySet for Vulkan.

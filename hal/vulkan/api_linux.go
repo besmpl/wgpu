@@ -10,8 +10,8 @@ import (
 	"os"
 	"unsafe"
 
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 )
 
 // platformSurfaceExtensions returns all Linux surface extensions to request.

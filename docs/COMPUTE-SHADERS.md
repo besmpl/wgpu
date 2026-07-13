@@ -336,7 +336,7 @@ if ready, _ := pending.Status(); ready {
 ## Timestamp Queries for Profiling
 
 > **Note:** Timestamp queries use the `hal/` package directly — they are not yet exposed
-> in the high-level `wgpu` root package. Import `"github.com/gogpu/wgpu/hal"` for this functionality.
+> in the high-level `wgpu` root package. Import `"github.com/besmpl/wgpu/hal"` for this functionality.
 > Access HAL device/queue from wgpu types via `device.HalDevice()` and `device.HalQueue()`.
 
 You can measure GPU execution time of compute passes using timestamp queries.
@@ -344,7 +344,7 @@ You can measure GPU execution time of compute passes using timestamp queries.
 ### Creating a Query Set
 
 ```go
-import "github.com/gogpu/wgpu/hal"
+import "github.com/besmpl/wgpu/hal"
 
 querySet, err := halDevice.CreateQuerySet(&hal.QuerySetDescriptor{
     Label: "Timestamp Queries",
@@ -416,7 +416,7 @@ fmt.Printf("Compute pass took %.3f ms\n", elapsedNs/1e6)
 ### Checking Errors
 
 ```go
-import "github.com/gogpu/wgpu"
+import "github.com/besmpl/wgpu"
 
 pipeline, err := device.CreateComputePipeline(desc)
 if err != nil {

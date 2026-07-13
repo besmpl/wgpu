@@ -6,7 +6,7 @@ import (
 	"syscall/js"
 	"time"
 
-	"github.com/gogpu/wgpu/internal/browser"
+	"github.com/besmpl/wgpu/internal/browser"
 )
 
 // Device represents a logical GPU device.

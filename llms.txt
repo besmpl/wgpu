@@ -4,9 +4,9 @@
 
 ## Docs
 
-- [API Reference](https://pkg.go.dev/github.com/gogpu/wgpu)
-- [AGENTS.md](https://github.com/gogpu/wgpu/blob/main/AGENTS.md): AI agent instructions
-- [README](https://github.com/gogpu/wgpu/blob/main/README.md): Human-readable overview
+- [API Reference](https://pkg.go.dev/github.com/besmpl/wgpu)
+- [AGENTS.md](https://github.com/besmpl/wgpu/blob/main/AGENTS.md): AI agent instructions
+- [README](https://github.com/besmpl/wgpu/blob/main/README.md): Human-readable overview
 
 ## Ecosystem
 

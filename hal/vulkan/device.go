@@ -12,11 +12,11 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/vulkan/memory"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 	"github.com/gogpu/gputypes"
 	"github.com/gogpu/naga"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/vulkan/memory"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
 )
 
 // commandAllocator holds a recycled VkCommandPool.
@@ -95,6 +95,10 @@ type Device struct {
 	// (from VkPhysicalDeviceLimits.TimestampPeriod). Intel typically 1.0,
 	// AMD/NVIDIA vary. Queried during initAllocator.
 	timestampPeriod float32
+
+	// maxDrawIndirectCount is the physical-device limit for one indexed
+	// indirect operation. Zero keeps the prepared route unsupported.
+	maxDrawIndirectCount uint32
 
 	// mappedMemory tracks persistently mapped VkDeviceMemory objects.
 	// Vulkan only allows one active vkMapMemory per VkDeviceMemory;

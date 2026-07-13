@@ -12,11 +12,11 @@ import (
 	"time"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
 	"github.com/gogpu/naga"
 	"github.com/gogpu/naga/ir"
 	"github.com/gogpu/naga/msl"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // Vertex buffer indices are assigned from the end of the range and count down.
@@ -28,11 +28,12 @@ const unknownError = "unknown error"
 
 // Device implements hal.Device for Metal.
 type Device struct {
-	raw           ID // id<MTLDevice>
-	commandQueue  ID // id<MTLCommandQueue>
-	adapter       *Adapter
-	eventListener ID     // id<MTLSharedEventListener> — created lazily, reused
-	queue         *Queue // back-reference for WaitIdle semaphore draining
+	raw                        ID // id<MTLDevice>
+	commandQueue               ID // id<MTLCommandQueue>
+	adapter                    *Adapter
+	eventListener              ID     // id<MTLSharedEventListener> — created lazily, reused
+	queue                      *Queue // back-reference for WaitIdle semaphore draining
+	preparedIndexedTranslators map[preparedIndexedTranslatorKey]preparedIndexedTranslator
 }
 
 // newDevice creates a new Device from a Metal device.
@@ -178,11 +179,20 @@ func (d *Device) CreateTexture(desc *hal.TextureDescriptor) (hal.Texture, error)
 	_ = MsgSend(texDesc, Sel("setWidth:"), uintptr(desc.Size.Width))
 	_ = MsgSend(texDesc, Sel("setHeight:"), uintptr(desc.Size.Height))
 
-	depth := desc.Size.DepthOrArrayLayers
-	if depth == 0 {
-		depth = 1
+	depthOrArrayLayers := desc.Size.DepthOrArrayLayers
+	if depthOrArrayLayers == 0 {
+		depthOrArrayLayers = 1
 	}
-	_ = MsgSend(texDesc, Sel("setDepth:"), uintptr(depth))
+	physicalDepth := depthOrArrayLayers
+	arrayLength := uint32(1)
+	if desc.Dimension != gputypes.TextureDimension3D {
+		physicalDepth = 1
+		arrayLength = depthOrArrayLayers
+	}
+	_ = MsgSend(texDesc, Sel("setDepth:"), uintptr(physicalDepth))
+	if texType == MTLTextureType1DArray || texType == MTLTextureType2DArray {
+		_ = MsgSend(texDesc, Sel("setArrayLength:"), uintptr(arrayLength))
+	}
 
 	mipLevels := desc.MipLevelCount
 	if mipLevels == 0 {
@@ -216,7 +226,7 @@ func (d *Device) CreateTexture(desc *hal.TextureDescriptor) (hal.Texture, error)
 		format:     desc.Format,
 		width:      desc.Size.Width,
 		height:     desc.Size.Height,
-		depth:      depth,
+		depth:      depthOrArrayLayers,
 		mipLevels:  mipLevels,
 		samples:    sampleCount,
 		dimension:  desc.Dimension,
@@ -594,6 +604,14 @@ func (d *Device) CreateRenderPipeline(desc *hal.RenderPipelineDescriptor) (hal.R
 		return nil, fmt.Errorf("metal: failed to create pipeline descriptor")
 	}
 	defer Release(pipelineDesc)
+	// Render pipelines executed from an MTLIndirectCommandBuffer must opt in
+	// explicitly. Ordinary pipelines must leave this disabled: Metal rejects
+	// fragment shaders that are not compatible with ICB execution. Older Metal
+	// families may not expose this property, so guard the selector before
+	// sending it.
+	if desc.SupportIndirectCommandBuffers && MsgSendBool(pipelineDesc, Sel("respondsToSelector:"), uintptr(Sel("setSupportIndirectCommandBuffers:"))) {
+		_ = MsgSend(pipelineDesc, Sel("setSupportIndirectCommandBuffers:"), uintptr(YES))
+	}
 
 	// Set label if provided
 	if desc.Label != "" {
@@ -1201,6 +1219,7 @@ func (d *Device) WaitIdle() error {
 // Destroy releases the device and associated resources.
 func (d *Device) Destroy() {
 	hal.Logger().Debug("metal: device destroyed")
+	d.releasePreparedIndexedTranslators()
 	if d.eventListener != 0 {
 		Release(d.eventListener)
 		d.eventListener = 0

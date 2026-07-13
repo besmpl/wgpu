@@ -13,9 +13,9 @@ import (
 	"time"
 	"unsafe"
 
-	"github.com/gogpu/wgpu/hal/gles"
-	"github.com/gogpu/wgpu/hal/gles/gl"
-	"github.com/gogpu/wgpu/hal/gles/wgl"
+	"github.com/besmpl/wgpu/hal/gles"
+	"github.com/besmpl/wgpu/hal/gles/gl"
+	"github.com/besmpl/wgpu/hal/gles/wgl"
 )
 
 var (

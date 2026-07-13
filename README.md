@@ -1,19 +1,23 @@
 <h1 align="center">wgpu</h1>
 
+> Hearth-owned `github.com/besmpl/wgpu` publication candidate. This fork is
+> based on GoGPU wgpu and carries the prepared-indexed command path described
+> in `PROVENANCE.md`.
+
 <p align="center">
   <strong>Unified Go WebGPU — Three Backends, One API</strong><br>
   Pure Go · Rust FFI · Browser WASM — build tag selects the stack
 </p>
 
 <p align="center">
-  <a href="https://github.com/gogpu/wgpu/actions/workflows/ci.yml"><img src="https://github.com/gogpu/wgpu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
-  <a href="https://codecov.io/gh/gogpu/wgpu"><img src="https://codecov.io/gh/gogpu/wgpu/branch/main/graph/badge.svg" alt="codecov"></a>
-  <a href="https://pkg.go.dev/github.com/gogpu/wgpu"><img src="https://pkg.go.dev/badge/github.com/gogpu/wgpu.svg" alt="Go Reference"></a>
-  <a href="https://goreportcard.com/report/github.com/gogpu/wgpu"><img src="https://goreportcard.com/badge/github.com/gogpu/wgpu" alt="Go Report Card"></a>
+  <a href="https://github.com/besmpl/wgpu/actions/workflows/ci.yml"><img src="https://github.com/besmpl/wgpu/actions/workflows/ci.yml/badge.svg" alt="CI"></a>
+  <a href="https://codecov.io/gh/besmpl/wgpu"><img src="https://codecov.io/gh/besmpl/wgpu/branch/main/graph/badge.svg" alt="codecov"></a>
+  <a href="https://pkg.go.dev/github.com/besmpl/wgpu"><img src="https://pkg.go.dev/badge/github.com/besmpl/wgpu.svg" alt="Go Reference"></a>
+  <a href="https://goreportcard.com/report/github.com/besmpl/wgpu"><img src="https://goreportcard.com/badge/github.com/besmpl/wgpu" alt="Go Report Card"></a>
   <a href="https://opensource.org/licenses/MIT"><img src="https://img.shields.io/badge/License-MIT-yellow.svg" alt="License"></a>
-  <a href="https://github.com/gogpu/wgpu/releases"><img src="https://img.shields.io/github/v/release/gogpu/wgpu" alt="Latest Release"></a>
-  <a href="https://github.com/gogpu/wgpu"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go" alt="Go Version"></a>
-  <a href="https://github.com/gogpu/wgpu"><img src="https://img.shields.io/badge/CGO-none-success" alt="Zero CGO"></a>
+  <a href="https://github.com/besmpl/wgpu/releases"><img src="https://img.shields.io/github/v/release/besmpl/wgpu" alt="Latest Release"></a>
+  <a href="https://github.com/besmpl/wgpu"><img src="https://img.shields.io/badge/Go-1.25+-00ADD8?logo=go" alt="Go Version"></a>
+  <a href="https://github.com/besmpl/wgpu"><img src="https://img.shields.io/badge/CGO-none-success" alt="Zero CGO"></a>
 </p>
 
 <p align="center">
@@ -44,7 +48,7 @@
 ## Installation
 
 ```bash
-go get github.com/gogpu/wgpu
+go get github.com/besmpl/wgpu
 ```
 
 **Requirements:** Go 1.25+
@@ -87,8 +91,8 @@ package main
 import (
     "fmt"
 
-    "github.com/gogpu/wgpu"
-    _ "github.com/gogpu/wgpu/hal/allbackends" // Auto-register platform backends
+    "github.com/besmpl/wgpu"
+    _ "github.com/besmpl/wgpu/hal/allbackends" // Auto-register platform backends
 )
 
 func main() {
@@ -210,7 +214,7 @@ Features: WGSL compute shaders, storage/uniform buffers, indirect dispatch, GPU 
 
 ```
 wgpu/
-├── *.go                # Public API (import "github.com/gogpu/wgpu")
+├── *.go                # Public API (import "github.com/besmpl/wgpu")
 ├── core/               # Validation, state tracking, deferred resource destruction
 ├── hal/                # Hardware Abstraction Layer
 │   ├── allbackends/    # Platform-specific backend auto-registration
@@ -230,11 +234,11 @@ wgpu/
 
 ### Public API
 
-The root package (`import "github.com/gogpu/wgpu"`) provides a safe, ergonomic API aligned with the W3C WebGPU specification. It wraps `core/` and `hal/` into user-friendly types:
+The root package (`import "github.com/besmpl/wgpu"`) provides a safe, ergonomic API aligned with the W3C WebGPU specification. It wraps `core/` and `hal/` into user-friendly types:
 
 ```
 User Application
-  ↓ import "github.com/gogpu/wgpu"    ← always the same import
+  ↓ import "github.com/besmpl/wgpu"    ← always the same import
 Root Package (public API: *Device, *Buffer, *Texture...)
   ↓ build tag selects implementation
   ├─ [default]      _native.go  → core/ → hal/ → vulkan/metal/dx12/gles/software
@@ -247,7 +251,7 @@ Root Package (public API: *Device, *Buffer, *Texture...)
 For the default (Pure Go) path, backends auto-register via blank imports:
 
 ```go
-import _ "github.com/gogpu/wgpu/hal/allbackends"
+import _ "github.com/besmpl/wgpu/hal/allbackends"
 
 // Platform-specific backends auto-registered:
 // - Windows: Vulkan, DX12, GLES, Software
@@ -330,7 +334,7 @@ Full-featured CPU rasterizer for headless and windowed rendering. Always compile
 // Software backend auto-registers via init().
 // No explicit import needed when using hal/allbackends.
 // For standalone usage:
-import _ "github.com/gogpu/wgpu/hal/software"
+import _ "github.com/besmpl/wgpu/hal/software"
 
 // Use cases:
 // - CI/CD testing without GPU
@@ -399,7 +403,7 @@ import _ "github.com/gogpu/wgpu/hal/software"
 - **[ROADMAP.md](ROADMAP.md)** — Development milestones
 - **[CHANGELOG.md](CHANGELOG.md)** — Release notes
 - **[CONTRIBUTING.md](CONTRIBUTING.md)** — Contribution guidelines
-- **[pkg.go.dev](https://pkg.go.dev/github.com/gogpu/wgpu)** — API reference
+- **[pkg.go.dev](https://pkg.go.dev/github.com/besmpl/wgpu)** — API reference
 
 ---
 

@@ -5,9 +5,9 @@ package wgpu
 import (
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/noop"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/noop"
 )
 
 // benchBatchingQueue is a zero-allocation mock for benchmarks.

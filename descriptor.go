@@ -3,8 +3,8 @@
 package wgpu
 
 import (
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // Extent3D is a 3D size.
@@ -308,6 +308,11 @@ type RenderPipelineDescriptor struct {
 	DepthStencil *DepthStencilState
 	Multisample  MultisampleState
 	Fragment     *FragmentState
+
+	// SupportIndirectCommandBuffers opts this pipeline into the backend's
+	// indirect command-buffer path. It is false by default; set it only for
+	// pipelines that will execute prepared indexed indirect commands.
+	SupportIndirectCommandBuffers bool
 }
 
 // VertexState describes the vertex shader stage.
@@ -327,10 +332,11 @@ type FragmentState struct {
 // toHAL converts a RenderPipelineDescriptor to a hal.RenderPipelineDescriptor.
 func (d *RenderPipelineDescriptor) toHAL() *hal.RenderPipelineDescriptor {
 	halDesc := &hal.RenderPipelineDescriptor{
-		Label:        d.Label,
-		Primitive:    d.Primitive,
-		Multisample:  d.Multisample,
-		DepthStencil: d.DepthStencil.toHAL(),
+		Label:                         d.Label,
+		Primitive:                     d.Primitive,
+		Multisample:                   d.Multisample,
+		DepthStencil:                  d.DepthStencil.toHAL(),
+		SupportIndirectCommandBuffers: d.SupportIndirectCommandBuffers,
 	}
 
 	if d.Layout != nil {

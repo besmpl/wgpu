@@ -2,7 +2,7 @@
 
 package wgpu
 
-import "github.com/gogpu/wgpu/hal"
+import "github.com/besmpl/wgpu/hal"
 
 // Sampler represents a texture sampler.
 type Sampler struct {

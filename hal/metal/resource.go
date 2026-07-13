@@ -8,8 +8,8 @@ package metal
 import (
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // Buffer implements hal.Buffer for Metal.

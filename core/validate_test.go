@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // validTextureDesc returns a valid 2D texture descriptor for tests.

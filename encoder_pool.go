@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/gogpu/wgpu/hal"
+	"github.com/besmpl/wgpu/hal"
 )
 
 // encoderPool pools hal.CommandEncoder instances to avoid creating expensive

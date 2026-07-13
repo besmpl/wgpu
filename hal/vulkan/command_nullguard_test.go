@@ -8,9 +8,9 @@ package vulkan
 import (
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
 )
 
 // TestBeginEncodingNilDevice verifies that BeginEncoding returns an error

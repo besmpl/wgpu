@@ -1,4 +1,4 @@
-module github.com/gogpu/wgpu
+module github.com/besmpl/wgpu
 
 go 1.25.0
 

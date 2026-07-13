@@ -14,9 +14,9 @@ import (
 	"os"
 	"time"
 
+	"github.com/besmpl/wgpu"
+	_ "github.com/besmpl/wgpu/hal/software"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
-	_ "github.com/gogpu/wgpu/hal/software"
 )
 
 func main() {

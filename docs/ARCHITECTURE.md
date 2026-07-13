@@ -9,7 +9,7 @@ Like Chrome (Dawn) and Firefox (wgpu) implementing the same W3C WebGPU spec, `wg
 ```
 ┌─────────────────────────────────────────────────┐
 │                   User Code                     │
-│   import "github.com/gogpu/wgpu"                │
+│   import "github.com/besmpl/wgpu"                │
 │   Same *Device, *Buffer, *Texture on all paths  │
 └──────────┬──────────────────┬──────────────┬────┘
            │ (default)        │ -tags rust   │ js,wasm
@@ -194,7 +194,7 @@ Key files: `promise.go` (async→sync), `convert_enums.go` (97 TextureFormats, 3
 Backends register via `init()` functions. Import `hal/allbackends` to auto-register platform-appropriate backends:
 
 ```go
-import _ "github.com/gogpu/wgpu/hal/allbackends"
+import _ "github.com/besmpl/wgpu/hal/allbackends"
 ```
 
 Platform selection (`hal/allbackends/`):

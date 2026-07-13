@@ -3,8 +3,8 @@
 package noop
 
 import (
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // Adapter implements hal.Adapter for the noop backend.

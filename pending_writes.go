@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // pendingWrites accumulates WriteBuffer operations into a

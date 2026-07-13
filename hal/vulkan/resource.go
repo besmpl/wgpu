@@ -6,9 +6,9 @@
 package vulkan
 
 import (
+	"github.com/besmpl/wgpu/hal/vulkan/memory"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal/vulkan/memory"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
 )
 
 // Buffer implements hal.Buffer for Vulkan.

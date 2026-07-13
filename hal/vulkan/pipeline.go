@@ -10,9 +10,9 @@ import (
 	"runtime"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
 )
 
 const defaultEntryPoint = "main"
@@ -23,6 +23,15 @@ const defaultEntryPoint = "main"
 func (d *Device) CreateRenderPipeline(desc *hal.RenderPipelineDescriptor) (hal.RenderPipeline, error) {
 	if desc == nil {
 		return nil, fmt.Errorf("BUG: render pipeline descriptor is nil in Vulkan.CreateRenderPipeline — core validation gap")
+	}
+	// Vulkan requires a valid pipeline layout whenever a graphics pipeline has
+	// shader stages. Unlike WebGPU's browser/Rust implementations, this native
+	// HAL does not derive automatic layouts from shader reflection. Rejecting a
+	// nil layout here prevents forwarding VK_NULL_HANDLE to
+	// VkGraphicsPipelineCreateInfo, which is invalid and can crash drivers
+	// (notably lavapipe and MoltenVK) instead of returning a VkResult.
+	if desc.Layout == nil {
+		return nil, fmt.Errorf("vulkan: render pipeline layout is required (automatic layouts are not supported)")
 	}
 
 	// Get pipeline layout
@@ -328,7 +337,7 @@ func (d *Device) CreateRenderPipeline(desc *hal.RenderPipelineDescriptor) (hal.R
 
 	// Defensive check: Intel Vulkan drivers may return VK_SUCCESS but write VK_NULL_HANDLE.
 	// This is a Vulkan spec violation, but we must handle it to prevent undefined behavior.
-	// See: https://github.com/gogpu/wgpu/issues/24
+	// See: https://github.com/besmpl/wgpu/issues/24
 	if pipeline == 0 {
 		return nil, hal.ErrDriverBug
 	}
@@ -425,7 +434,7 @@ func (d *Device) CreateComputePipeline(desc *hal.ComputePipelineDescriptor) (hal
 
 	// Defensive check: Intel Vulkan drivers may return VK_SUCCESS but write VK_NULL_HANDLE.
 	// This is a Vulkan spec violation, but we must handle it to prevent undefined behavior.
-	// See: https://github.com/gogpu/wgpu/issues/24
+	// See: https://github.com/besmpl/wgpu/issues/24
 	if pipeline == 0 {
 		return nil, hal.ErrDriverBug
 	}

@@ -9,7 +9,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/gogpu/wgpu"
+	"github.com/besmpl/wgpu"
 )
 
 // FEAT-WGPU-MAPPING-001 — zero-alloc benchmark gate for Buffer.Map.

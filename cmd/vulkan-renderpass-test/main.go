@@ -19,8 +19,8 @@ import (
 	"os"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 	"github.com/gogpu/naga"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
 )
 
 func main() {

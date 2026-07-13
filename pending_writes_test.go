@@ -6,9 +6,9 @@ import (
 	"testing"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/noop"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/noop"
 )
 
 // --- Mock types for batching backend tests ---

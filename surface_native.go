@@ -6,9 +6,9 @@ import (
 	"fmt"
 	"image"
 
+	"github.com/besmpl/wgpu/core"
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/core"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // Surface represents a platform rendering surface (e.g., a window).

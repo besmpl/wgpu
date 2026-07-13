@@ -3,7 +3,7 @@
 package memory
 
 import (
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 )
 
 // UsageFlags specifies intended memory usage.

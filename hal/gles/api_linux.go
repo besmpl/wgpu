@@ -8,10 +8,10 @@ package gles
 import (
 	"fmt"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/gles/egl"
+	"github.com/besmpl/wgpu/hal/gles/gl"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/gles/egl"
-	"github.com/gogpu/wgpu/hal/gles/gl"
 )
 
 // vendorUnknown is the placeholder vendor name used when the actual GPU vendor

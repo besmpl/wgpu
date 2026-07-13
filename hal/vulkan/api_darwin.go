@@ -9,8 +9,8 @@ import (
 	"fmt"
 	"unsafe"
 
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 )
 
 // platformSurfaceExtension returns the macOS surface extension.

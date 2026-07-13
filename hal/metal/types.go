@@ -272,6 +272,17 @@ const (
 // MTLPrimitiveType represents primitive types for drawing.
 type MTLPrimitiveType NSUInteger
 
+// MTLIndirectCommandType values accepted by
+// MTLIndirectCommandBufferDescriptor.commandTypes.
+type MTLIndirectCommandType NSUInteger
+
+const (
+	MTLIndirectCommandTypeDraw               MTLIndirectCommandType = 1 << 0
+	MTLIndirectCommandTypeDrawIndexed        MTLIndirectCommandType = 1 << 1
+	MTLIndirectCommandTypeConcurrentDispatch MTLIndirectCommandType = 1 << 2
+	MTLIndirectCommandTypeConcurrentRender   MTLIndirectCommandType = 1 << 3
+)
+
 const (
 	MTLPrimitiveTypePoint         MTLPrimitiveType = 0
 	MTLPrimitiveTypeLine          MTLPrimitiveType = 1

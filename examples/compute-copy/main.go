@@ -7,6 +7,8 @@
 // back the results for CPU verification.
 //
 // The example is headless (no window required) and works on any supported GPU.
+//go:build !(js && wasm)
+
 package main
 
 import (
@@ -17,11 +19,11 @@ import (
 	"math"
 	"time"
 
+	"github.com/besmpl/wgpu"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
 
 	// Register all available GPU backends (Vulkan, DX12, GLES, Metal, etc.)
-	_ "github.com/gogpu/wgpu/hal/allbackends"
+	_ "github.com/besmpl/wgpu/hal/allbackends"
 )
 
 // copyShaderWGSL copies elements from source to destination with a scale factor.

@@ -3,8 +3,8 @@
 package wgpu
 
 import (
+	"github.com/besmpl/wgpu/core"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/core"
 )
 
 // SetTestRequiredVertexBuffers sets the requiredVertexBuffers field for testing.

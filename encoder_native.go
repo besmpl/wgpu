@@ -5,8 +5,8 @@ package wgpu
 import (
 	"fmt"
 
-	"github.com/gogpu/wgpu/core"
-	"github.com/gogpu/wgpu/hal"
+	"github.com/besmpl/wgpu/core"
+	"github.com/besmpl/wgpu/hal"
 )
 
 // CommandEncoder records GPU commands for later submission.

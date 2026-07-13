@@ -8,8 +8,8 @@ package metal
 import (
 	"fmt"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // Backend implements hal.Backend for Metal.
@@ -68,13 +68,7 @@ func (i *Instance) EnumerateAdapters(surfaceHint hal.Surface) []hal.ExposedAdapt
 			deviceType = gputypes.DeviceTypeIntegratedGPU
 		}
 
-		// Build features
-		var features gputypes.Features
-		if DeviceSupportsFamily(device, MTLGPUFamilyMetal3) {
-			features.Insert(gputypes.FeatureTimestampQuery)
-		}
-		features.Insert(gputypes.FeatureDepthClipControl)
-		features.Insert(gputypes.FeatureTextureCompressionBC)
+		features := metalAdapterFeatures(DeviceSupportsFamily(device, MTLGPUFamilyMetal3))
 
 		adapter := &Adapter{
 			instance:              i,
@@ -155,6 +149,20 @@ func (i *Instance) EnumerateAdapters(surfaceHint hal.Surface) []hal.ExposedAdapt
 	}
 
 	return adapters
+}
+
+// metalAdapterFeatures returns the optional feature bits exposed by Metal.
+// Fixed-count indexed multi-draw remains intentionally absent: the Metal
+// command path has no implementation for the legacy one-shot operation, so callers
+// must retain the individual-indirect fallback even when other features exist.
+func metalAdapterFeatures(supportsMetal3 bool) gputypes.Features {
+	var features gputypes.Features
+	if supportsMetal3 {
+		features.Insert(gputypes.FeatureTimestampQuery)
+	}
+	features.Insert(gputypes.FeatureDepthClipControl)
+	features.Insert(gputypes.FeatureTextureCompressionBC)
+	return features
 }
 
 // Destroy releases the instance.

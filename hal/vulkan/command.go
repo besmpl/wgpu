@@ -9,9 +9,9 @@ import (
 	"fmt"
 	"runtime"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
 )
 
 // CommandBuffer holds a recorded Vulkan command buffer.
@@ -1091,6 +1091,18 @@ func (e *RenderPassEncoder) DrawIndexedIndirect(buffer hal.Buffer, offset uint64
 	vkCmdDrawIndexedIndirect(e.encoder.device.cmds, e.encoder.active, buf.handle, vk.DeviceSize(offset), 1, 0)
 }
 
+// executePreparedIndexed emits one Vulkan fixed-count indexed indirect command
+// for the prepared command path.
+func (e *RenderPassEncoder) executePreparedIndexed(buffer hal.Buffer, offset uint64, count uint32) error {
+	buf, ok := buffer.(*Buffer)
+	if !ok || e.encoder.active == 0 || count == 0 {
+		return fmt.Errorf("vulkan: invalid prepared indexed command")
+	}
+
+	preparedIndexedDrawIndexedIndirect(e.encoder.device.cmds, e.encoder.active, buf.handle, vk.DeviceSize(offset), count, 20)
+	return nil
+}
+
 // ExecuteBundle executes a pre-recorded render bundle.
 func (e *RenderPassEncoder) ExecuteBundle(bundle hal.RenderBundle) {
 	vkBundle, ok := bundle.(*RenderBundle)
@@ -1515,6 +1527,10 @@ func vkCmdDrawIndirect(cmds *vk.Commands, cmdBuffer vk.CommandBuffer, buffer vk.
 func vkCmdDrawIndexedIndirect(cmds *vk.Commands, cmdBuffer vk.CommandBuffer, buffer vk.Buffer, offset vk.DeviceSize, drawCount, stride uint32) {
 	cmds.CmdDrawIndexedIndirect(cmdBuffer, buffer, offset, drawCount, stride)
 }
+
+// preparedIndexedDrawIndexedIndirect is a narrow test seam for asserting the
+// exact native fixed-count operation without requiring a Vulkan device.
+var preparedIndexedDrawIndexedIndirect = vkCmdDrawIndexedIndirect
 
 func vkCmdDispatch(cmds *vk.Commands, cmdBuffer vk.CommandBuffer, x, y, z uint32) {
 	cmds.CmdDispatch(cmdBuffer, x, y, z)

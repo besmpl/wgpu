@@ -5,9 +5,9 @@ package wgpu
 import (
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/noop"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/noop"
 )
 
 func TestEncoderPool_AcquireCreatesNew(t *testing.T) {

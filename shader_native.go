@@ -3,8 +3,8 @@
 package wgpu
 
 import (
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/naga/ir"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // ShaderModule represents a compiled shader module.

@@ -9,9 +9,9 @@ import (
 	"runtime"
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
 )
 
 // benchSink prevents the compiler from optimizing away benchmark results.

@@ -8,7 +8,7 @@
 // Import this package for side effects to register all available backends:
 //
 //	import (
-//		_ "github.com/gogpu/wgpu/hal/allbackends"
+//		_ "github.com/besmpl/wgpu/hal/allbackends"
 //	)
 //
 // This will register:
@@ -28,8 +28,8 @@
 // Example usage:
 //
 //	import (
-//		_ "github.com/gogpu/wgpu/hal/allbackends"
-//		"github.com/gogpu/wgpu/core"
+//		_ "github.com/besmpl/wgpu/hal/allbackends"
+//		"github.com/besmpl/wgpu/core"
 //	)
 //
 //	func main() {

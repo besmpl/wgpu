@@ -5,8 +5,8 @@ package core
 import (
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // mockQuerySet implements hal.QuerySet for testing.

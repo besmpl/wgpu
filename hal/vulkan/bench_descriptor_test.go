@@ -8,8 +8,8 @@ package vulkan
 import (
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // BenchmarkVulkanCreateBindGroupLayout measures bind group layout creation overhead.

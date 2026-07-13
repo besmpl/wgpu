@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // Mock HAL types to satisfy interfaces without returning nil, nil.

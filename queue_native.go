@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"sync"
 
-	"github.com/gogpu/wgpu/core"
-	"github.com/gogpu/wgpu/hal"
+	"github.com/besmpl/wgpu/core"
+	"github.com/besmpl/wgpu/hal"
 )
 
 // Queue handles command submission and data transfers.
@@ -141,16 +141,17 @@ func (q *Queue) Submit(commandBuffers ...*CommandBuffer) (uint64, error) {
 // 2. Schedules HAL encoder recycling via DestroyQueue (BUG-DX12-004)
 // 3. Triages deferred resource destructions
 func (q *Queue) postSubmit(subIdx uint64, commandBuffers []*CommandBuffer) {
-	dq := q.destroyQueue()
-	if dq == nil {
-		return
-	}
-
 	// Mark all command buffers as submitted to prevent double-submit (VAL-A6).
+	// This ownership transition is part of successful queue acceptance and must
+	// happen even when optional DestroyQueue bookkeeping is unavailable.
 	for _, cb := range commandBuffers {
 		if cb != nil {
 			cb.submitted = true
 		}
+	}
+	dq := q.destroyQueue()
+	if dq == nil {
+		return
 	}
 
 	// Collect tracked refs from command buffers and associate with this submission.

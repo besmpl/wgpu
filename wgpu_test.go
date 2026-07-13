@@ -6,14 +6,14 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/besmpl/wgpu"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
 
 	// Import noop backend. Note: the noop backend (BackendEmpty) is skipped by
 	// core.Instance during real adapter enumeration. A mock adapter is created
 	// instead. Tests that require HAL integration (CreateBuffer, CreateTexture,
 	// CreateShaderModule, etc.) are skipped when running on mock devices.
-	_ "github.com/gogpu/wgpu/hal/noop"
+	_ "github.com/besmpl/wgpu/hal/noop"
 )
 
 // --- helpers ---

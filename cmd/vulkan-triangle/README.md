@@ -129,7 +129,7 @@ Average FPS: 60.0
 
 ### Build Errors
 
-**Error**: `cannot find package "github.com/gogpu/wgpu/hal/vulkan"`
+**Error**: `cannot find package "github.com/besmpl/wgpu/hal/vulkan"`
 - Make sure you're in the `wgpu` repository
 - Run `go mod tidy`
 

@@ -10,10 +10,10 @@ import (
 	"image"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/gles/gl"
+	"github.com/besmpl/wgpu/hal/gles/wgl"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/gles/gl"
-	"github.com/gogpu/wgpu/hal/gles/wgl"
 )
 
 // Queue implements hal.Queue for OpenGL.

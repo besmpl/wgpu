@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"math/bits"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // ValidateTextureDescriptor validates a texture descriptor against device limits.

@@ -5,9 +5,9 @@ package wgpu
 import (
 	"fmt"
 
+	"github.com/besmpl/wgpu/core"
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/core"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // InstanceDescriptor configures instance creation.

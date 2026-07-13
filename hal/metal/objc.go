@@ -12,9 +12,9 @@ import (
 	"sync/atomic"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/go-webgpu/goffi/ffi"
 	"github.com/go-webgpu/goffi/types"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // Objective-C runtime library handle and function symbols.

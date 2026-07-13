@@ -12,7 +12,7 @@ To report a security vulnerability:
 
 1. **Do NOT** open a public issue
 2. Email security concerns to the maintainers via GitHub private vulnerability reporting
-3. Or open a private security advisory at: https://github.com/gogpu/wgpu/security/advisories/new
+3. Or open a private security advisory at: https://github.com/besmpl/wgpu/security/advisories/new
 
 We will respond within 48 hours and work with you to understand and address the issue.
 

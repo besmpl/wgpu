@@ -5,8 +5,8 @@ package wgpu
 import (
 	"fmt"
 
+	"github.com/besmpl/wgpu/core"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/core"
 )
 
 // DeviceDescriptor configures device creation.

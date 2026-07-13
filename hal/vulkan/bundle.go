@@ -8,9 +8,9 @@ package vulkan
 import (
 	"fmt"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
 )
 
 // RenderBundle is a pre-recorded set of render commands.

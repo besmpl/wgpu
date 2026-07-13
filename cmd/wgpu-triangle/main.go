@@ -11,9 +11,9 @@ import (
 	"runtime"
 	"time"
 
+	"github.com/besmpl/wgpu"
+	_ "github.com/besmpl/wgpu/hal/vulkan"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
-	_ "github.com/gogpu/wgpu/hal/vulkan"
 )
 
 func init() {

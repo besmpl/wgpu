@@ -7,11 +7,11 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/besmpl/wgpu/core"
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
 	naga "github.com/gogpu/naga"
 	"github.com/gogpu/naga/ir"
-	"github.com/gogpu/wgpu/core"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // Device represents a logical GPU device.
@@ -890,16 +890,20 @@ func (d *Device) Release() {
 	if d.released.Load() {
 		return
 	}
+
+	// Wait while the public device is still live. WaitIdle intentionally
+	// rejects released devices, so marking released first would skip the wait
+	// and tear down command pools while the GPU can still reference them.
+	if d.core != nil {
+		if halDevice, ok := d.core.HalDeviceHandle(); ok && halDevice != nil {
+			_ = halDevice.WaitIdle()
+		}
+	}
 	d.released.Store(true)
 
 	if d.queue != nil {
 		d.queue.release()
 	}
-
-	// Step 0: Wait for ALL GPU work to finish. This ensures PollCompleted()
-	// returns the final submission index, so Triage processes all submissions
-	// and deferred encoder recycling callbacks fire correctly.
-	_ = d.WaitIdle()
 
 	// Step 1: Flush deferred destructions. With GPU idle, Triage processes
 	// all submissions. Encoder recycling callbacks fire, returning encoders

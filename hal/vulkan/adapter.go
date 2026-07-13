@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 	"github.com/go-webgpu/goffi/ffi"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
 )
 
 // Adapter implements hal.Adapter for Vulkan.
@@ -149,6 +149,7 @@ func (a *Adapter) Open(features gputypes.Features, limits gputypes.Limits) (hal.
 		graphicsFamily:             uint32(graphicsFamily),
 		cmds:                       &deviceCmds,
 		supportsIncrementalPresent: hasIncrementalPresent,
+		maxDrawIndirectCount:       a.properties.Limits.MaxDrawIndirectCount,
 	}
 
 	// Initialize synchronization fence (VK-IMPL-001 / VK-IMPL-003).

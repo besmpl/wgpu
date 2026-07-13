@@ -6,9 +6,9 @@ import (
 	"encoding/binary"
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/software/shader"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/software/shader"
 )
 
 // =============================================================================

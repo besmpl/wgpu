@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
+	"github.com/besmpl/wgpu/hal/dx12/d3d12"
+	"github.com/besmpl/wgpu/hal/dx12/dxgi"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	"github.com/gogpu/wgpu/hal/dx12/d3d12"
-	"github.com/gogpu/wgpu/hal/dx12/dxgi"
 )
 
 // Adapter implements hal.Adapter for DirectX 12.
@@ -225,7 +225,28 @@ func (a *Adapter) Features() gputypes.Features {
 		features |= gputypes.Features(gputypes.FeatureShaderF16)
 	}
 
+	// D3D12's ExecuteIndirect command signatures are available on every
+	// supported D3D12 feature level (11_0 and newer).  The indexed signature
+	// consumes D3D12_DRAW_INDEXED_ARGUMENTS, whose fifth uint32 is
+	// StartInstanceLocation, so it provides both fixed-count multi-draw and
+	// indirect first-instance semantics on legacy and modern DX12 adapters.
+	// Keep these bits tied to the feature level rather than advertising them
+	// unconditionally: a zero-value/invalid capability record must remain
+	// conservative in tests and during failed adapter probing.
+	if supportsIndexedExecuteIndirect(a.capabilities.FeatureLevel) {
+		features |= gputypes.Features(gputypes.FeatureMultiDrawIndirect)
+		features |= gputypes.Features(gputypes.FeatureIndirectFirstInstance)
+	}
+
 	return features
+}
+
+// supportsIndexedExecuteIndirect reports whether this adapter can execute the
+// indexed indirect command signature used by prepared indexed execution. D3D12
+// exposes ExecuteIndirect and D3D12_DRAW_INDEXED_ARGUMENTS (including
+// StartInstanceLocation) at feature level 11_0 and all later levels.
+func supportsIndexedExecuteIndirect(level d3d12.D3D_FEATURE_LEVEL) bool {
+	return level >= d3d12.D3D_FEATURE_LEVEL_11_0
 }
 
 // Capabilities returns detailed adapter capabilities.

@@ -9,8 +9,8 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/gogpu/wgpu/core"
-	"github.com/gogpu/wgpu/hal"
+	"github.com/besmpl/wgpu/core"
+	"github.com/besmpl/wgpu/hal"
 )
 
 // bufferCleanupRef holds the data needed to destroy a buffer's HAL resources
@@ -37,10 +37,20 @@ type Buffer struct {
 }
 
 // Size returns the buffer size in bytes.
-func (b *Buffer) Size() uint64 { return b.core.Size() }
+func (b *Buffer) Size() uint64 {
+	if b == nil || b.core == nil {
+		return 0
+	}
+	return b.core.Size()
+}
 
 // Usage returns the buffer's usage flags.
-func (b *Buffer) Usage() BufferUsage { return b.core.Usage() }
+func (b *Buffer) Usage() BufferUsage {
+	if b == nil || b.core == nil {
+		return 0
+	}
+	return b.core.Usage()
+}
 
 // Label returns the buffer's debug label.
 func (b *Buffer) Label() string { return b.core.Label() }

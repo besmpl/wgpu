@@ -7,9 +7,9 @@ import (
 	"errors"
 	"fmt"
 
+	"github.com/besmpl/wgpu/core"
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/core"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // ComputePassEncoder records compute dispatch commands.

@@ -8,7 +8,7 @@ package vulkan
 import (
 	"testing"
 
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 )
 
 // TestRelaySemaphoresStateMachine validates the two-semaphore alternation pattern

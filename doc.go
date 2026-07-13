@@ -8,8 +8,8 @@
 // Import this package and a backend registration package:
 //
 //	import (
-//	    "github.com/gogpu/wgpu"
-//	    _ "github.com/gogpu/wgpu/hal/allbackends"
+//	    "github.com/besmpl/wgpu"
+//	    _ "github.com/besmpl/wgpu/hal/allbackends"
 //	)
 //
 //	instance, err := wgpu.CreateInstance(nil)
@@ -24,9 +24,9 @@
 //
 // Backends are registered via blank imports:
 //
-//	_ "github.com/gogpu/wgpu/hal/allbackends"  // all available backends
-//	_ "github.com/gogpu/wgpu/hal/vulkan"        // Vulkan only
-//	_ "github.com/gogpu/wgpu/hal/noop"           // testing
+//	_ "github.com/besmpl/wgpu/hal/allbackends"  // all available backends
+//	_ "github.com/besmpl/wgpu/hal/vulkan"        // Vulkan only
+//	_ "github.com/besmpl/wgpu/hal/noop"           // testing
 //
 // # Thread Safety
 //

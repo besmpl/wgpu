@@ -3,7 +3,7 @@
 package wgpu
 
 import (
-	"github.com/gogpu/wgpu/hal"
+	"github.com/besmpl/wgpu/hal"
 )
 
 // Texture represents a GPU texture.

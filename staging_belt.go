@@ -5,8 +5,8 @@ package wgpu
 import (
 	"fmt"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // stagingBelt manages reusable staging buffer chunks for zero-allocation

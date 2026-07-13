@@ -3,8 +3,8 @@
 package track
 
 import (
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // BufferUses represents internal buffer usage states for tracking.

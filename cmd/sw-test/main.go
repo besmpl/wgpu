@@ -2,6 +2,8 @@
 // Headless — no window needed. Creates instance, adapter, device,
 // compiles a shader, and creates a render pipeline to verify the
 // software backend is functional.
+//go:build !(js && wasm)
+
 package main
 
 import (
@@ -10,10 +12,10 @@ import (
 	"log/slog"
 	"os"
 
+	"github.com/besmpl/wgpu"
+	"github.com/besmpl/wgpu/hal"
+	_ "github.com/besmpl/wgpu/hal/software"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
-	"github.com/gogpu/wgpu/hal"
-	_ "github.com/gogpu/wgpu/hal/software"
 )
 
 const wgslShader = `

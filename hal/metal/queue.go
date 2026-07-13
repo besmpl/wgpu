@@ -11,7 +11,7 @@ import (
 	"sync/atomic"
 	"unsafe"
 
-	"github.com/gogpu/wgpu/hal"
+	"github.com/besmpl/wgpu/hal"
 )
 
 // maxFramesInFlight is the maximum number of frames the CPU can get ahead of
@@ -63,6 +63,10 @@ func (q *Queue) Submit(commandBuffers []hal.CommandBuffer) (uint64, error) {
 
 	q.submissionIndex++
 	subIdx := q.submissionIndex
+	// The timing probe is compiled only for the explicit native evidence tag.
+	// Its normal-build implementation is an inlinable no-op, so production
+	// queue submission has no timing state or allocation overhead.
+	timingProbeBeginSubmission(q, subIdx, uint32(len(commandBuffers)))
 
 	pool := NewAutoreleasePool()
 	defer pool.Drain()
@@ -73,6 +77,7 @@ func (q *Queue) Submit(commandBuffers []hal.CommandBuffer) (uint64, error) {
 		if !ok || cb == nil {
 			continue
 		}
+		timingProbeAttachCommandBuffer(q, cb.raw, subIdx)
 
 		// On the last command buffer, register completion handlers.
 		if i == lastIdx {

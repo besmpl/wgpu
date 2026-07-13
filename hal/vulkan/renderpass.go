@@ -11,8 +11,8 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal/vulkan/vk"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal/vulkan/vk"
 )
 
 // RenderPassKey uniquely identifies a render pass configuration.

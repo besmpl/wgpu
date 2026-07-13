@@ -6,8 +6,8 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // =============================================================================

@@ -14,7 +14,7 @@ Part of the [GoGPU ecosystem](https://github.com/gogpu) — think Flutter or Qt,
 
 ## When to use wgpu
 
-- **You need low-level GPU access** → import `github.com/gogpu/wgpu`
+- **You need low-level GPU access** → import `github.com/besmpl/wgpu`
 - **You're building a renderer or compute pipeline** → Device, Queue, CommandEncoder, RenderPass
 - **You want cross-backend GPU** → same code runs on Vulkan, Metal, DX12, GLES, Software, Browser
 
@@ -23,7 +23,7 @@ Part of the [GoGPU ecosystem](https://github.com/gogpu) — think Flutter or Qt,
 ## Quick Start
 
 ```go
-import "github.com/gogpu/wgpu"
+import "github.com/besmpl/wgpu"
 
 instance, _ := wgpu.CreateInstance(nil)
 adapter, _ := instance.RequestAdapter(nil)
@@ -65,7 +65,7 @@ wgpu (public API — Device, Queue, Buffer, Texture, Pipeline...)
 
 ## Current Version
 
-v0.30.4 | Go 1.25+ | Dependencies: naga v0.17.15, gpucontext v0.21.0, gputypes v0.5.0
+Publication candidate `v0.31.0-hearth.1` (upstream base `v0.30.4`) | Go 1.25+ | Dependencies: naga v0.17.15, gpucontext v0.21.0, gputypes v0.5.0
 
 ## Build & Test
 
@@ -105,7 +105,7 @@ queue := wgpu.QueueFromHandle(handle)     // → *wgpu.Queue
 
 ## Links
 
-- GitHub: https://github.com/gogpu/wgpu
-- Docs: https://pkg.go.dev/github.com/gogpu/wgpu
+- GitHub: https://github.com/besmpl/wgpu
+- Docs: https://pkg.go.dev/github.com/besmpl/wgpu
 - Ecosystem: [gogpu AGENTS.md](https://github.com/gogpu/gogpu/blob/main/AGENTS.md)
 - Sponsors: https://github.com/gogpu/gogpu/blob/main/SPONSORS.md

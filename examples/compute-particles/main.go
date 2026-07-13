@@ -9,6 +9,8 @@
 // For a windowed version with real-time rendering, see gogpu/examples/particles.
 //
 // Usage: CGO_ENABLED=0 go run .
+//go:build !(js && wasm)
+
 package main
 
 import (
@@ -20,10 +22,10 @@ import (
 	"math/rand/v2"
 	"time"
 
+	"github.com/besmpl/wgpu"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
 
-	_ "github.com/gogpu/wgpu/hal/allbackends"
+	_ "github.com/besmpl/wgpu/hal/allbackends"
 )
 
 const numParticles = 1024

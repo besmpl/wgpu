@@ -201,6 +201,10 @@ type RenderPipelineDescriptor struct {
 	DepthStencil *DepthStencilState
 	Multisample  MultisampleState
 	Fragment     *FragmentState
+
+	// SupportIndirectCommandBuffers is a native-backend hint and is ignored by
+	// the Rust backend.
+	SupportIndirectCommandBuffers bool
 }
 
 // VertexState describes the vertex shader stage.

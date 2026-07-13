@@ -1,4 +1,4 @@
-//go:build js && wasm
+//go:build js && wasm && hearth_browser_compute
 
 package main
 
@@ -8,7 +8,7 @@ import (
 	"math"
 	"syscall/js"
 
-	"github.com/gogpu/wgpu"
+	"github.com/besmpl/wgpu"
 )
 
 const computeShader = `

@@ -2,7 +2,7 @@
 
 package wgpu
 
-import "github.com/gogpu/wgpu/internal/browser"
+import "github.com/besmpl/wgpu/internal/browser"
 
 // RenderPassEncoder records draw commands within a render pass.
 // On browser, this wraps a GPURenderPassEncoder via internal/browser.RenderPassEncoder.

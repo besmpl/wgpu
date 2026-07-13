@@ -369,6 +369,11 @@ type RenderPipelineDescriptor struct {
 
 	// Fragment is the fragment stage (optional for depth-only passes).
 	Fragment *FragmentState
+
+	// SupportIndirectCommandBuffers opts this pipeline into Metal's indirect
+	// command-buffer execution path. It is false by default because Metal
+	// rejects ordinary fragment pipelines that are not compatible with ICBs.
+	SupportIndirectCommandBuffers bool
 }
 
 // VertexState describes the vertex shader stage.

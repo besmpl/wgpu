@@ -9,8 +9,8 @@ import (
 	// Linux-specific HAL backend imports.
 
 	// Vulkan backend - primary backend on Linux.
-	_ "github.com/gogpu/wgpu/hal/vulkan"
+	_ "github.com/besmpl/wgpu/hal/vulkan"
 
 	// OpenGL ES backend - fallback for systems without Vulkan.
-	_ "github.com/gogpu/wgpu/hal/gles"
+	_ "github.com/besmpl/wgpu/hal/gles"
 )

@@ -17,7 +17,7 @@ Thank you for your interest in contributing to wgpu!
 
 ```bash
 # Clone the repository
-git clone https://github.com/gogpu/wgpu
+git clone https://github.com/besmpl/wgpu
 cd wgpu
 
 # Install dependencies

@@ -10,9 +10,9 @@ import (
 	"sync"
 	"unsafe"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/go-webgpu/goffi/ffi"
 	"github.com/go-webgpu/goffi/types"
-	"github.com/gogpu/wgpu/hal"
 )
 
 var (
@@ -114,8 +114,14 @@ func preRegisterSelectors() {
 		"newSamplerStateWithDescriptor:",
 		"newCommandQueue",
 		"newRenderPipelineStateWithDescriptor:error:",
+		"setSupportIndirectCommandBuffers:",
 		"newLibraryWithSource:options:error:",
+		"newIndirectCommandBufferWithDescriptor:maxCommandCount:options:",
 		"newFunctionWithName:",
+		"newArgumentEncoderWithBufferIndex:",
+		"encodedLength",
+		"setArgumentBuffer:offset:",
+		"setIndirectCommandBuffer:atIndex:",
 		"supportsFamily:",
 		// MTLCommandQueue
 		"commandBuffer",
@@ -124,6 +130,11 @@ func preRegisterSelectors() {
 		"renderCommandEncoderWithDescriptor:",
 		"blitCommandEncoder",
 		"computeCommandEncoder",
+		"setComputePipelineState:",
+		"setBuffer:offset:atIndex:",
+		"setBytes:length:atIndex:",
+		"useResource:usage:",
+		"dispatchThreadgroups:threadsPerThreadgroup:",
 		"commit",
 		"waitUntilCompleted",
 		"addCompletedHandler:",
@@ -138,6 +149,9 @@ func preRegisterSelectors() {
 		"setScissorRect:",
 		"drawPrimitives:vertexStart:vertexCount:",
 		"drawIndexedPrimitives:indexCount:indexType:indexBuffer:indexBufferOffset:",
+		"executeCommandsInBuffer:withRange:",
+		"useResource:usage:",
+		"resetWithRange:",
 		"endEncoding",
 		// CAMetalLayer
 		"setDevice:",

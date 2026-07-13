@@ -72,11 +72,20 @@ var (
 	//   - Use a different backend (e.g., DX12 instead of Vulkan)
 	//   - Use software rendering backend
 	//
-	// See: https://github.com/gogpu/wgpu/issues/24
+	// See: https://github.com/besmpl/wgpu/issues/24
 	ErrDriverBug = errors.New("hal: driver bug detected (API spec violation)")
 
 	// ErrInvalidMapRange indicates MapBuffer was called with an offset+size
 	// range that exceeds the buffer, or the buffer has no host-visible memory
 	// so it cannot be mapped on the CPU.
 	ErrInvalidMapRange = errors.New("hal: invalid buffer map range or non-mappable buffer")
+
+	// Prepared indexed command errors are intentionally separate from generic
+	// backend errors so the public layer can make fallback-safe decisions.
+	ErrPreparedIndexedUnsupported = errors.New("hal: prepared indexed commands unsupported")
+	ErrPreparedIndexedLimit       = errors.New("hal: prepared indexed command limit exceeded")
+	ErrPreparedIndexedInvalid     = errors.New("hal: invalid prepared indexed command batch")
+	ErrPreparedIndexedOwnership   = errors.New("hal: prepared indexed command ownership mismatch")
+	ErrPreparedIndexedState       = errors.New("hal: prepared indexed command state mismatch")
+	ErrPreparedIndexedBackend     = errors.New("hal: prepared indexed backend operation failed")
 )

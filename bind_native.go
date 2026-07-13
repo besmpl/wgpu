@@ -7,9 +7,9 @@ import (
 	"runtime"
 	"sync/atomic"
 
+	"github.com/besmpl/wgpu/core"
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/core"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // bindGroupCleanupRef holds the data needed to destroy a bind group's HAL

@@ -5,8 +5,8 @@ package core
 import (
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 // --- minimal hal.Surface stub for surface-hint tests ---

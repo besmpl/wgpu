@@ -6,9 +6,9 @@ import (
 	"errors"
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
+	_ "github.com/besmpl/wgpu/hal/noop" // Import for side effect of registering noop backend
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
-	_ "github.com/gogpu/wgpu/hal/noop" // Import for side effect of registering noop backend
 )
 
 // Use non-standard backend variant numbers to avoid interfering with

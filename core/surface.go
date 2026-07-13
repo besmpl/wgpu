@@ -6,7 +6,7 @@ import (
 	"errors"
 	"image"
 
-	"github.com/gogpu/wgpu/hal"
+	"github.com/besmpl/wgpu/hal"
 )
 
 // Surface lifecycle errors.

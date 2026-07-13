@@ -315,7 +315,8 @@ func TestComputePipelineDescriptorToHAL(t *testing.T) {
 
 func TestRenderPipelineDescriptorToHAL(t *testing.T) {
 	desc := RenderPipelineDescriptor{
-		Label: "render-pipe",
+		Label:                         "render-pipe",
+		SupportIndirectCommandBuffers: true,
 		Vertex: VertexState{
 			EntryPoint: "vs_main",
 			// Module is nil -- toHAL should handle this.
@@ -324,6 +325,9 @@ func TestRenderPipelineDescriptorToHAL(t *testing.T) {
 	halDesc := desc.toHAL()
 	if halDesc.Label != desc.Label {
 		t.Errorf("Label = %q, want %q", halDesc.Label, desc.Label)
+	}
+	if !halDesc.SupportIndirectCommandBuffers {
+		t.Error("SupportIndirectCommandBuffers = false, want true")
 	}
 }
 

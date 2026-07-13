@@ -37,6 +37,13 @@ const (
 type Features = gputypes.Features
 type Limits = gputypes.Limits
 
+const (
+	// FeatureMultiDrawIndirect enables fixed-count indexed multi-draw
+	// indirect commands where the selected backend exposes one native
+	// operation for all records.
+	FeatureMultiDrawIndirect = gputypes.FeatureMultiDrawIndirect
+)
+
 // Buffer usage
 type BufferUsage = gputypes.BufferUsage
 

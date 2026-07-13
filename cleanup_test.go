@@ -7,9 +7,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/gogpu/wgpu"
+	"github.com/besmpl/wgpu"
 
-	_ "github.com/gogpu/wgpu/hal/noop"
+	_ "github.com/besmpl/wgpu/hal/noop"
 )
 
 // =============================================================================

@@ -6,8 +6,8 @@ import (
 	"image"
 	"testing"
 
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/hal"
 )
 
 func TestRenderPassStats_ScissorAndDrawCount(t *testing.T) {

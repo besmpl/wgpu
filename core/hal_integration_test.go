@@ -8,13 +8,13 @@ package core_test
 import (
 	"testing"
 
+	"github.com/besmpl/wgpu/core"
+	"github.com/besmpl/wgpu/hal"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu/core"
-	"github.com/gogpu/wgpu/hal"
 
 	// Import all backends for side-effect registration.
 	// This enables real GPU adapter enumeration.
-	_ "github.com/gogpu/wgpu/hal/allbackends"
+	_ "github.com/besmpl/wgpu/hal/allbackends"
 )
 
 // TestCoreHALIntegration verifies that Core properly integrates with HAL backends.

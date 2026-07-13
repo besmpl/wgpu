@@ -12,6 +12,8 @@
 //	0 — rendered, PNG written, non-trivial pixel count found
 //	1 — pipeline/render failed (D3D12 rejected DXIL, mapping failed, etc.)
 //	2 — rendered but no non-background pixels (pipeline created but nothing drew)
+//go:build !(js && wasm)
+
 package main
 
 import (
@@ -26,10 +28,10 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/besmpl/wgpu"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
 
-	_ "github.com/gogpu/wgpu/hal/allbackends"
+	_ "github.com/besmpl/wgpu/hal/allbackends"
 )
 
 // Shader bisection table.

@@ -7,6 +7,8 @@
 // results. The final summation is performed on the CPU.
 //
 // The example is headless (no window required) and works on any supported GPU.
+//go:build !(js && wasm)
+
 package main
 
 import (
@@ -16,11 +18,11 @@ import (
 	"log"
 	"time"
 
+	"github.com/besmpl/wgpu"
 	"github.com/gogpu/gputypes"
-	"github.com/gogpu/wgpu"
 
 	// Register all available GPU backends (Vulkan, DX12, GLES, Metal, etc.)
-	_ "github.com/gogpu/wgpu/hal/allbackends"
+	_ "github.com/besmpl/wgpu/hal/allbackends"
 )
 
 // sumShaderWGSL performs pairwise addition: output[i] = input[2*i] + input[2*i+1].
