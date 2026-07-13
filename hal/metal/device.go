@@ -368,6 +368,7 @@ func (d *Device) CreateSampler(desc *hal.SamplerDescriptor) (hal.Sampler, error)
 	_ = MsgSend(sampDesc, Sel("setSAddressMode:"), uintptr(addressModeToMTL(desc.AddressModeU)))
 	_ = MsgSend(sampDesc, Sel("setTAddressMode:"), uintptr(addressModeToMTL(desc.AddressModeV)))
 	_ = MsgSend(sampDesc, Sel("setRAddressMode:"), uintptr(addressModeToMTL(desc.AddressModeW)))
+	_ = MsgSend(sampDesc, Sel("setSupportArgumentBuffers:"), uintptr(YES))
 
 	if desc.Anisotropy > 1 {
 		_ = MsgSend(sampDesc, Sel("setMaxAnisotropy:"), uintptr(desc.Anisotropy))

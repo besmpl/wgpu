@@ -61,9 +61,7 @@ vertex VSOut vs(VSIn in [[stage_in]], uint instance_id [[instance_id]], uint bas
   VSOut out; out.position = float4(in.position, 0.0, 1.0); out.layer = base_instance; return out;
 }
 fragment float4 fs(VSOut in [[stage_in]], constant MaterialPageArgs& args [[buffer(7)]]) {
-	float4 direct = args.page.read(uint2(0, 0), in.layer, 0);
-	float4 filtered = args.page.sample(args.samp, float2(0.5, 0.5), in.layer);
-	return direct + filtered * 0.000001;
+	return args.page.sample(args.samp, float2(0.5, 0.5), in.layer);
 }`
 	abi := &MaterialPageShaderDescriptor{ABIVersion: 1, BindGroupIndex: 0, TextureBinding: 0, SamplerBinding: 1, TextureArgumentIndex: 0, SamplerArgumentIndex: 1, FragmentBufferIndex: 7}
 	shader, err := device.CreateShaderModule(&ShaderModuleDescriptor{Label: "material page probe shader", MSL: msl, MaterialPage: abi})
@@ -176,8 +174,8 @@ fragment float4 fs(VSOut in [[stage_in]], constant MaterialPageArgs& args [[buff
 	if !bytes.Equal(prepared, oracle) {
 		t.Fatalf("prepared page readback differs from individual page draws (prepared=%x oracle=%x)", prepared[:minInt(32, len(prepared))], oracle[:minInt(32, len(oracle))])
 	}
-	if !hasRedGreen(prepared) {
-		t.Fatalf("page readback did not contain both layer colors: %x", prepared[:minInt(64, len(prepared))])
+	if !hasExpectedMaterialLayers(prepared) {
+		t.Fatalf("page readback did not sample layer 0 red on the left and layer 1 green on the right: %x", prepared[:minInt(64, len(prepared))])
 	}
 	if err := testMaterialPageSubmitRejectsReleased(t, device, queue, flagged, pageView, sampler, vertex, index, indirect); !errors.Is(err, ErrMaterialPageReleased) {
 		t.Fatalf("release-before-submit error = %v", err)
@@ -202,13 +200,24 @@ func minInt(a, b int) int {
 
 func mathFloat32bits(v float32) uint32 { return math.Float32bits(v) }
 
-func hasRedGreen(data []byte) bool {
-	var red, green bool
-	for i := 0; i+3 < len(data); i += 4 {
-		red = red || data[i] > 200 && data[i+1] < 40
-		green = green || data[i+1] > 200 && data[i] < 40
+func hasExpectedMaterialLayers(data []byte) bool {
+	const bytesPerRow = 256
+	for y := 0; y < 2; y++ {
+		for x := 0; x < 4; x++ {
+			offset := y*bytesPerRow + x*4
+			if offset+3 >= len(data) {
+				return false
+			}
+			red, green := data[offset], data[offset+1]
+			if x < 2 && (red <= 200 || green >= 40) {
+				return false
+			}
+			if x >= 2 && (green <= 200 || red >= 40) {
+				return false
+			}
+		}
 	}
-	return red && green
+	return true
 }
 
 func renderMaterialPageFrame(t *testing.T, device *Device, queue *Queue, pipeline *RenderPipeline, page *MaterialPage, vertex, index, indirect *Buffer) []byte {

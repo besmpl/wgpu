@@ -112,6 +112,7 @@ func preRegisterSelectors() {
 		"newBufferWithLength:options:",
 		"newTextureWithDescriptor:",
 		"newSamplerStateWithDescriptor:",
+		"setSupportArgumentBuffers:",
 		"newCommandQueue",
 		"newRenderPipelineStateWithDescriptor:error:",
 		"setSupportIndirectCommandBuffers:",
