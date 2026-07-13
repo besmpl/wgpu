@@ -97,7 +97,9 @@ func (p *MaterialPage) matches(pipeline *RenderPipeline) bool {
 
 func (p *RenderPassEncoder) SetMaterialPage(page *MaterialPage) error {
 	if page == nil {
-		p.encoder.setError(ErrMaterialPageInvalid)
+		if p != nil && p.encoder != nil {
+			p.encoder.setError(ErrMaterialPageInvalid)
+		}
 		return ErrMaterialPageInvalid
 	}
 	if p.encoder == nil || p.core == nil || !p.pipelineSet {
@@ -129,6 +131,9 @@ func (p *RenderPassEncoder) SetMaterialPage(page *MaterialPage) error {
 		return err
 	}
 	p.materialPage = page
+	if p.currentPipeline.materialPage != nil {
+		p.binder.assignMaterialPage(p.currentPipeline.materialPage.BindGroupIndex)
+	}
 	p.trackRef(page.ref)
 	p.encoder.trackMaterialPage(page)
 	if page.view != nil && page.view.texture != nil {

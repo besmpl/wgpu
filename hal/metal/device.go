@@ -846,7 +846,11 @@ func (d *Device) CreateMaterialPage(pipeline hal.RenderPipeline, view hal.Textur
 		Release(encoder)
 		return nil, fmt.Errorf("metal: material page argument encoder has zero encoded length")
 	}
-	buffer := MsgSend(d.raw, Sel("newBufferWithLength:options:"), uintptr(encodedLength), uintptr(MTLResourceStorageModePrivate))
+	// Argument encoders populate the buffer from the CPU. Shared storage is
+	// required for direct encoding on Apple Silicon; a private buffer would
+	// need a separate staging/blit path that this immutable page deliberately
+	// does not own.
+	buffer := MsgSend(d.raw, Sel("newBufferWithLength:options:"), uintptr(encodedLength), uintptr(MTLResourceStorageModeShared))
 	if buffer == 0 {
 		Release(encoder)
 		return nil, fmt.Errorf("metal: material page argument buffer allocation failed")

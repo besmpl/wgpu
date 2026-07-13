@@ -41,7 +41,8 @@ func (p *binderPayload) reset() {
 type binder struct {
 	// assigned holds the layout of the bind group set at each slot via SetBindGroup.
 	// nil means no bind group has been assigned to that slot.
-	assigned [MaxBindGroups]*BindGroupLayout
+	assigned             [MaxBindGroups]*BindGroupLayout
+	materialPageAssigned [MaxBindGroups]bool
 
 	// expected holds the layout expected at each slot by the current pipeline.
 	// nil means the pipeline does not use that slot.
@@ -59,11 +60,22 @@ type binder struct {
 // reset clears all binder state. Called when a new pipeline is set.
 func (b *binder) reset() {
 	b.assigned = [MaxBindGroups]*BindGroupLayout{}
+	b.materialPageAssigned = [MaxBindGroups]bool{}
 	b.expected = [MaxBindGroups]*BindGroupLayout{}
 	b.maxSlots = 0
 	for i := range b.payloads {
 		b.payloads[i].reset()
 	}
+}
+
+func (b *binder) assignMaterialPage(index uint32) {
+	if index < MaxBindGroups {
+		b.materialPageAssigned[index] = true
+	}
+}
+
+func (b *binder) clearMaterialPageAssignments() {
+	b.materialPageAssigned = [MaxBindGroups]bool{}
 }
 
 // updateExpectations sets the expected layouts from a pipeline's bind group layouts.
@@ -230,6 +242,9 @@ func (b *binder) checkCompatibility() error {
 			continue
 		}
 		asg := b.assigned[i]
+		if b.materialPageAssigned[i] {
+			continue
+		}
 		if asg == nil {
 			return fmt.Errorf(
 				"wgpu: bind group at index %d is required by the pipeline but not set (call SetBindGroup): %w",

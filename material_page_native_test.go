@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/besmpl/wgpu/core"
+	"github.com/gogpu/gputypes"
 )
 
 func testMaterialPage() (*MaterialPage, *int32) {
@@ -33,6 +34,29 @@ func TestMaterialPageBindRequiresActivePassAndPipeline(t *testing.T) {
 	pass := &RenderPassEncoder{encoder: &CommandEncoder{}}
 	if err := pass.SetMaterialPage(page); !errors.Is(err, ErrMaterialPageInactivePass) {
 		t.Fatalf("SetMaterialPage without active pass = %v, want %v", err, ErrMaterialPageInactivePass)
+	}
+}
+
+func TestMaterialPageBindNilIsSafe(t *testing.T) {
+	var pass RenderPassEncoder
+	if err := pass.SetMaterialPage(nil); !errors.Is(err, ErrMaterialPageInvalid) {
+		t.Fatalf("zero pass SetMaterialPage(nil) = %v, want %v", err, ErrMaterialPageInvalid)
+	}
+	var nilPass *RenderPassEncoder
+	if err := nilPass.SetMaterialPage(nil); !errors.Is(err, ErrMaterialPageInvalid) {
+		t.Fatalf("nil pass SetMaterialPage(nil) = %v, want %v", err, ErrMaterialPageInvalid)
+	}
+}
+
+func TestMaterialPageLayoutRequiresEmptyMarkedGroup(t *testing.T) {
+	page := &MaterialPageDescriptor{ABIVersion: 1, BindGroupIndex: 0, TextureArgumentIndex: 0, SamplerArgumentIndex: 1}
+	if err := validateMaterialPageLayout(&RenderPipelineDescriptor{MaterialPage: page}); !errors.Is(err, ErrMaterialPageInvalid) {
+		t.Fatalf("missing marked group layout = %v, want %v", err, ErrMaterialPageInvalid)
+	}
+	nonempty := &BindGroupLayout{entries: []gputypes.BindGroupLayoutEntry{{Binding: 0}}}
+	layout := &PipelineLayout{bindGroupLayouts: []*BindGroupLayout{nonempty}}
+	if err := validateMaterialPageLayout(&RenderPipelineDescriptor{Layout: layout, MaterialPage: page}); !errors.Is(err, ErrMaterialPageInvalid) {
+		t.Fatalf("nonempty marked group layout = %v, want %v", err, ErrMaterialPageInvalid)
 	}
 }
 

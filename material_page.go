@@ -1,6 +1,10 @@
 package wgpu
 
-import "errors"
+import (
+	"encoding/binary"
+	"errors"
+	"hash/fnv"
+)
 
 // MaterialPageCapabilities describes the optional, fixed ABI used by the
 // Metal material-page path. A false Supported value is the normal result on
@@ -56,4 +60,20 @@ func (d MaterialPageDescriptor) fingerprint() uint64 {
 		}
 	}
 	return h
+}
+
+func shaderSourceFingerprint(d *ShaderModuleDescriptor) uint64 {
+	if d == nil {
+		return 0
+	}
+	h := fnv.New64a()
+	_, _ = h.Write([]byte(d.MSL))
+	_, _ = h.Write([]byte{0})
+	_, _ = h.Write([]byte(d.WGSL))
+	var word [4]byte
+	for _, v := range d.SPIRV {
+		binary.LittleEndian.PutUint32(word[:], v)
+		_, _ = h.Write(word[:])
+	}
+	return h.Sum64()
 }

@@ -17,9 +17,10 @@ type ShaderModule struct {
 	// Matches Rust wgpu-core's ShaderModule.interface which stores the
 	// naga Module for shader introspection.
 	// nil when the shader was provided as SPIR-V (no WGSL source to parse).
-	irModule        *ir.Module
-	materialPage    *MaterialPageShaderDescriptor
-	materialPageMSL bool
+	irModule          *ir.Module
+	materialPage      *MaterialPageShaderDescriptor
+	materialPageMSL   bool
+	sourceFingerprint uint64
 }
 
 // extractShaderBindingSizes extracts the minimum buffer binding sizes

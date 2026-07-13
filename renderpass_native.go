@@ -77,6 +77,7 @@ func (p *RenderPassEncoder) SetPipeline(pipeline *RenderPipeline) {
 	p.currentPipeline = pipeline
 	if p.materialPage != nil && !p.materialPage.matches(pipeline) {
 		p.materialPage = nil
+		p.binder.clearMaterialPageAssignments()
 	}
 	p.pipelineSet = true
 	p.requiredVertexBuffers = pipeline.requiredVertexBuffers

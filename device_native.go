@@ -225,7 +225,7 @@ func (d *Device) CreateShaderModule(desc *ShaderModuleDescriptor) (*ShaderModule
 		return nil, fmt.Errorf("wgpu: failed to create shader module: %w", err)
 	}
 
-	sm := &ShaderModule{hal: halModule, device: d, materialPage: desc.MaterialPage, materialPageMSL: desc.MSL != ""}
+	sm := &ShaderModule{hal: halModule, device: d, materialPage: desc.MaterialPage, materialPageMSL: desc.MSL != "", sourceFingerprint: shaderSourceFingerprint(desc)}
 
 	// Parse WGSL source to naga IR for shader introspection (late binding validation).
 	// Matches Rust wgpu-core which stores the naga Module on ShaderModule for use
@@ -522,6 +522,9 @@ func (d *Device) CreateRenderPipeline(desc *RenderPipelineDescriptor) (*RenderPi
 		bgCount = desc.Layout.bindGroupCount
 		bgLayouts = desc.Layout.bindGroupLayouts
 	}
+	if err := validateMaterialPageLayout(desc); err != nil {
+		return nil, err
+	}
 	// Check if any color target uses blend constant factors.
 	// Matches Rust wgpu-core PipelineFlags::BLEND_CONSTANT (resource.rs:4562-4569).
 	var needsBlendConstant bool
@@ -584,6 +587,12 @@ func (d *Device) CreateRenderPipeline(desc *RenderPipelineDescriptor) (*RenderPi
 				mix(uint64(b))
 			}
 		}
+		if desc.Vertex.Module != nil {
+			mix(desc.Vertex.Module.sourceFingerprint)
+		}
+		if desc.Fragment != nil && desc.Fragment.Module != nil {
+			mix(desc.Fragment.Module.sourceFingerprint)
+		}
 	}
 
 	return &RenderPipeline{
@@ -599,6 +608,17 @@ func (d *Device) CreateRenderPipeline(desc *RenderPipelineDescriptor) (*RenderPi
 		materialPage:            desc.MaterialPage,
 		materialPageFingerprint: materialFingerprint,
 	}, nil
+}
+
+func validateMaterialPageLayout(desc *RenderPipelineDescriptor) error {
+	if desc == nil || desc.MaterialPage == nil {
+		return nil
+	}
+	index := desc.MaterialPage.BindGroupIndex
+	if desc.Layout == nil || index >= uint32(len(desc.Layout.bindGroupLayouts)) || desc.Layout.bindGroupLayouts[index] == nil || len(desc.Layout.bindGroupLayouts[index].entries) != 0 {
+		return fmt.Errorf("%w: material page BindGroupIndex must name an empty bind-group layout", ErrMaterialPageInvalid)
+	}
+	return nil
 }
 
 // fragmentShaderModule extracts the ShaderModule from a FragmentState, or nil if absent.

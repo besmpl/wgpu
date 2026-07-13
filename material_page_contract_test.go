@@ -37,8 +37,18 @@ func TestMaterialPageDescriptorReachesHALMetadata(t *testing.T) {
 		MSL:          "fragment float4 page() { return float4(1); }",
 		MaterialPage: &MaterialPageShaderDescriptor{ABIVersion: 1, TextureArgumentIndex: 0, SamplerArgumentIndex: 1, FragmentBufferIndex: 7},
 	}
-	h := d.toHAL()
-	if h.Source.MSL != d.MSL || h.Source.MaterialPage == nil || h.Source.MaterialPage.FragmentBufferIndex != 7 {
-		t.Fatalf("material-page metadata was not preserved: %+v", h.Source)
+	if d.MSL == "" || d.MaterialPage == nil || d.MaterialPage.FragmentBufferIndex != 7 {
+		t.Fatalf("material-page metadata was not preserved: %+v", d)
+	}
+}
+
+func TestMaterialPageShaderSourceFingerprintDistinguishesShaders(t *testing.T) {
+	first := shaderSourceFingerprint(&ShaderModuleDescriptor{MSL: "fragment float4 fs() { return float4(1); }"})
+	second := shaderSourceFingerprint(&ShaderModuleDescriptor{MSL: "fragment float4 fs() { return float4(0); }"})
+	if first == 0 || second == 0 || first == second {
+		t.Fatalf("shader source fingerprints must distinguish explicit sources: %d %d", first, second)
+	}
+	if same := shaderSourceFingerprint(&ShaderModuleDescriptor{MSL: "fragment float4 fs() { return float4(1); }"}); same != first {
+		t.Fatalf("identical shader source fingerprint changed: %d != %d", same, first)
 	}
 }

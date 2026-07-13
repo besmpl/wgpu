@@ -133,6 +133,23 @@ func TestBinderCheckCompatibilityMissingBindGroup(t *testing.T) {
 	}
 }
 
+func TestBinderMaterialPageSatisfiesMarkedSlot(t *testing.T) {
+	b := binder{}
+	layout := &BindGroupLayout{}
+	b.updateExpectations([]*BindGroupLayout{layout})
+	if err := b.checkCompatibility(); err == nil {
+		t.Fatal("missing marked slot should fail before page assignment")
+	}
+	b.assignMaterialPage(0)
+	if err := b.checkCompatibility(); err != nil {
+		t.Fatalf("material page should satisfy marked slot: %v", err)
+	}
+	b.clearMaterialPageAssignments()
+	if err := b.checkCompatibility(); err == nil {
+		t.Fatal("clearing material page assignment should restore missing-slot error")
+	}
+}
+
 func TestBinderCheckCompatibilityIncompatibleLayout(t *testing.T) {
 	var b binder
 
