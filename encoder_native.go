@@ -44,7 +44,8 @@ type CommandEncoder struct {
 	// submit-time validation (VAL-B5). At Submit, each bind group is checked
 	// for destroyed state. Matches Rust wgpu-core's cmd_buf_data.trackers.bind_groups
 	// (device/queue.rs:1815-1817).
-	usedBindGroups map[*BindGroup]struct{}
+	usedBindGroups    map[*BindGroup]struct{}
+	usedMaterialPages map[*MaterialPage]struct{}
 }
 
 // setError records a deferred error on the underlying command encoder.
@@ -101,6 +102,16 @@ func (e *CommandEncoder) trackBindGroup(bg *BindGroup) {
 		e.usedBindGroups = make(map[*BindGroup]struct{})
 	}
 	e.usedBindGroups[bg] = struct{}{}
+}
+
+func (e *CommandEncoder) trackMaterialPage(page *MaterialPage) {
+	if page == nil {
+		return
+	}
+	if e.usedMaterialPages == nil {
+		e.usedMaterialPages = make(map[*MaterialPage]struct{})
+	}
+	e.usedMaterialPages[page] = struct{}{}
 }
 
 // BeginRenderPass begins a render pass.
@@ -370,19 +381,21 @@ func (e *CommandEncoder) Finish() (*CommandBuffer, error) {
 	}
 
 	cb := &CommandBuffer{
-		core:           coreCmdBuffer,
-		device:         e.device,
-		trackedRefs:    e.trackedRefs,
-		halEncoder:     e.halEncoder,
-		usedBuffers:    e.usedBuffers,
-		usedTextures:   e.usedTextures,
-		usedBindGroups: e.usedBindGroups,
+		core:              coreCmdBuffer,
+		device:            e.device,
+		trackedRefs:       e.trackedRefs,
+		halEncoder:        e.halEncoder,
+		usedBuffers:       e.usedBuffers,
+		usedTextures:      e.usedTextures,
+		usedBindGroups:    e.usedBindGroups,
+		usedMaterialPages: e.usedMaterialPages,
 	}
 	e.trackedRefs = nil
 	e.halEncoder = nil     // ownership transferred
 	e.usedBuffers = nil    // ownership transferred
 	e.usedTextures = nil   // ownership transferred
 	e.usedBindGroups = nil // ownership transferred
+	e.usedMaterialPages = nil
 	return cb, nil
 }
 
@@ -469,7 +482,8 @@ type CommandBuffer struct {
 	// Validated at Submit time: destroyed bind groups cause an error.
 	// Matches Rust wgpu-core's cmd_buf_data.trackers.bind_groups
 	// (device/queue.rs:1815-1817).
-	usedBindGroups map[*BindGroup]struct{}
+	usedBindGroups    map[*BindGroup]struct{}
+	usedMaterialPages map[*MaterialPage]struct{}
 
 	// submitted is set to true after this command buffer has been submitted
 	// to a queue. A command buffer cannot be submitted twice.

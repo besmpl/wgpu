@@ -87,7 +87,9 @@ type RenderPipeline struct {
 	lateSizedBufferGroups [MaxBindGroups]LateSizedBufferGroup
 	// ref is the GPU-aware reference counter for this pipeline (Phase 2).
 	// Clone'd when used in a render pass, Drop'd when GPU completes submission.
-	ref *core.ResourceRef
+	ref                     *core.ResourceRef
+	materialPage            *MaterialPageDescriptor
+	materialPageFingerprint uint64
 }
 
 // Release destroys the render pipeline. Destruction is deferred until the GPU

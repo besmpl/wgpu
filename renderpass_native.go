@@ -25,7 +25,9 @@ type RenderPassEncoder struct {
 	currentPipelineBindGroupCount uint32
 	// pipelineSet tracks whether SetPipeline has been called.
 	// Draw commands require a pipeline to be set first.
-	pipelineSet bool
+	pipelineSet     bool
+	currentPipeline *RenderPipeline
+	materialPage    *MaterialPage
 	// binder tracks bind group assignments and validates compatibility
 	// at draw time, matching Rust wgpu-core's Binder pattern.
 	binder binder
@@ -72,6 +74,10 @@ func (p *RenderPassEncoder) SetPipeline(pipeline *RenderPipeline) {
 		return
 	}
 	p.currentPipelineBindGroupCount = pipeline.bindGroupCount
+	p.currentPipeline = pipeline
+	if p.materialPage != nil && !p.materialPage.matches(pipeline) {
+		p.materialPage = nil
+	}
 	p.pipelineSet = true
 	p.requiredVertexBuffers = pipeline.requiredVertexBuffers
 	p.currentStripIndexFormat = pipeline.stripIndexFormat
@@ -181,6 +187,10 @@ func (p *RenderPassEncoder) validateDrawState(method string) bool {
 	if !p.pipelineSet {
 		p.encoder.setError(fmt.Errorf("wgpu: RenderPass.%s: no pipeline set (call SetPipeline first): %w",
 			method, ErrDrawMissingPipeline))
+		return false
+	}
+	if p.currentPipeline != nil && p.currentPipeline.materialPage != nil && p.materialPage == nil {
+		p.encoder.setError(fmt.Errorf("wgpu: RenderPass.%s: %w", method, materialPageDrawError()))
 		return false
 	}
 	if err := p.binder.checkCompatibility(); err != nil {

@@ -408,6 +408,17 @@ func validateCommandBufferForSubmit(cb *CommandBuffer, index int) error {
 				index, ErrSubmitBindGroupDestroyed)
 		}
 	}
+	for page := range cb.usedMaterialPages {
+		if page == nil || page.isReleased() {
+			return fmt.Errorf("wgpu: Submit: command buffer at index %d references released material page: %w", index, ErrMaterialPageReleased)
+		}
+		if page.view == nil || page.view.released || page.sampler == nil || page.sampler.released {
+			return fmt.Errorf("wgpu: Submit: command buffer at index %d references released material page child: %w", index, ErrMaterialPageReleased)
+		}
+		if page.view.texture != nil && page.view.texture.released {
+			return fmt.Errorf("wgpu: Submit: command buffer at index %d references released material page texture: %w", index, ErrMaterialPageReleased)
+		}
+	}
 
 	return nil
 }

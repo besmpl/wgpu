@@ -121,6 +121,8 @@ func preRegisterSelectors() {
 		"newArgumentEncoderWithBufferIndex:",
 		"encodedLength",
 		"setArgumentBuffer:offset:",
+		"setTexture:atIndex:",
+		"setSamplerState:atIndex:",
 		"setIndirectCommandBuffer:atIndex:",
 		"supportsFamily:",
 		// MTLCommandQueue

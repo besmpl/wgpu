@@ -450,6 +450,26 @@ type RenderPassEncoder struct {
 	indexOffset   uint64
 }
 
+// SetMaterialPage binds one immutable argument buffer for the marked
+// specialization and declares its texture residency for the render pass.
+func (e *RenderPassEncoder) SetMaterialPage(rawPage hal.MaterialPage) error {
+	page, ok := rawPage.(*MaterialPage)
+	if !ok || page == nil || page.destroyed || page.buffer == 0 {
+		return fmt.Errorf("metal: material page is released or invalid")
+	}
+	if e.raw == 0 {
+		return fmt.Errorf("metal: material page requires an active render pass")
+	}
+	if e.pipeline == nil || e.pipeline.materialPage == nil || materialPageFingerprint(e.pipeline.materialPage) != page.pipelineFingerprint {
+		return fmt.Errorf("metal: material page pipeline ABI mismatch")
+	}
+	_ = MsgSend(e.raw, Sel("setFragmentBuffer:offset:atIndex:"), uintptr(page.buffer), 0, uintptr(page.fragmentBufferIndex))
+	// Argument-buffer child textures are not made resident by binding the
+	// containing buffer. Declare read usage explicitly before ICB execution.
+	_ = MsgSend(e.raw, Sel("useResource:usage:"), uintptr(page.texture), uintptr(1))
+	return nil
+}
+
 // End finishes the render pass.
 func (e *RenderPassEncoder) End() {
 	if e.raw != 0 {

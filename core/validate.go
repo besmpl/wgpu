@@ -250,9 +250,10 @@ func ValidateShaderModuleDescriptor(desc *hal.ShaderModuleDescriptor) error {
 	label := desc.Label
 	hasWGSL := desc.Source.WGSL != ""
 	hasSPIRV := len(desc.Source.SPIRV) > 0
+	hasMSL := desc.Source.MSL != ""
 
 	// SM1: Must have at least one source.
-	if !hasWGSL && !hasSPIRV {
+	if !hasWGSL && !hasSPIRV && !hasMSL {
 		return &CreateShaderModuleError{
 			Kind:  CreateShaderModuleErrorNoSource,
 			Label: label,
@@ -260,7 +261,7 @@ func ValidateShaderModuleDescriptor(desc *hal.ShaderModuleDescriptor) error {
 	}
 
 	// SM2: Must not have both.
-	if hasWGSL && hasSPIRV {
+	if (hasWGSL && hasSPIRV) || (hasMSL && (hasWGSL || hasSPIRV)) {
 		return &CreateShaderModuleError{
 			Kind:  CreateShaderModuleErrorDualSource,
 			Label: label,

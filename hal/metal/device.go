@@ -23,6 +23,10 @@ import (
 // This maximizes the gap between uniform/storage buffers and vertex buffers.
 const maxVertexBuffers = 31
 
+// materialPageFragmentBufferIndex is reserved by the marked specialization.
+// It is intentionally outside the ordinary generated buffer range.
+const materialPageFragmentBufferIndex uint32 = 7
+
 // unknownError is the default error message when Metal returns a nil NSError.
 const unknownError = "unknown error"
 
@@ -476,6 +480,25 @@ func (d *Device) DestroyPipelineLayout(layout hal.PipelineLayout) {
 
 // CreateShaderModule creates a shader module.
 func (d *Device) CreateShaderModule(desc *hal.ShaderModuleDescriptor) (hal.ShaderModule, error) {
+	if desc.Source.MSL != "" {
+		pool := NewAutoreleasePool()
+		defer pool.Drain()
+		mslString := NSString(desc.Source.MSL)
+		defer Release(mslString)
+		var errorPtr ID
+		library := MsgSend(d.raw, Sel("newLibraryWithSource:options:error:"),
+			uintptr(mslString), 0, uintptr(unsafe.Pointer(&errorPtr)))
+		if library == 0 {
+			errMsg := unknownError
+			if errorPtr != 0 {
+				if details := formatNSError(errorPtr); details != "" {
+					errMsg = details
+				}
+			}
+			return nil, fmt.Errorf("metal: failed to compile explicit MSL: %s", errMsg)
+		}
+		return &ShaderModule{source: desc.Source, library: library, device: d, entrypointNames: map[string]string{}}, nil
+	}
 	// If WGSL source is provided, compile to MSL
 	if desc.Source.WGSL != "" { //nolint:nestif // WGSL→MSL pipeline is sequential; splitting would scatter coupled logic
 		start := time.Now()
@@ -597,6 +620,7 @@ func (d *Device) CreateRenderPipeline(desc *hal.RenderPipelineDescriptor) (hal.R
 			return nil, fmt.Errorf("metal: invalid fragment shader module")
 		}
 	}
+	var retainedFragment ID
 
 	// Create pipeline descriptor
 	pipelineDesc := MsgSend(ID(GetClass("MTLRenderPipelineDescriptor")), Sel("new"))
@@ -661,7 +685,12 @@ func (d *Device) CreateRenderPipeline(desc *hal.RenderPipelineDescriptor) (hal.R
 		if fragmentFunc == 0 {
 			return nil, fmt.Errorf("metal: fragment function '%s' not found", entrypointName)
 		}
-		defer Release(fragmentFunc)
+		if desc.MaterialPage != nil {
+			Retain(fragmentFunc)
+			retainedFragment = fragmentFunc
+		} else {
+			defer Release(fragmentFunc)
+		}
 
 		_ = MsgSend(pipelineDesc, Sel("setFragmentFunction:"), uintptr(fragmentFunc))
 
@@ -745,6 +774,9 @@ func (d *Device) CreateRenderPipeline(desc *hal.RenderPipelineDescriptor) (hal.R
 		uintptr(pipelineDesc), uintptr(unsafe.Pointer(&errorPtr)))
 
 	if pipelineState == 0 {
+		if retainedFragment != 0 {
+			Release(retainedFragment)
+		}
 		errMsg := unknownError
 		if errorPtr != 0 {
 			errDesc := MsgSend(errorPtr, Sel("localizedDescription"))
@@ -773,11 +805,73 @@ func (d *Device) CreateRenderPipeline(desc *hal.RenderPipelineDescriptor) (hal.R
 		cullMode:  cullModeToMTL(desc.Primitive.CullMode),
 		frontFace: frontFaceToMTL(desc.Primitive.FrontFace),
 
-		depthStencil:    depthStencilState,
-		depthBias:       depthBias,
-		depthSlopeScale: depthSlopeScale,
-		depthClamp:      depthClamp,
+		depthStencil:     depthStencilState,
+		depthBias:        depthBias,
+		depthSlopeScale:  depthSlopeScale,
+		depthClamp:       depthClamp,
+		fragmentFunction: retainedFragment,
+		materialPage:     desc.MaterialPage,
 	}, nil
+}
+
+// MaterialPageCapabilities reports the fixed argument-buffer ABI supported by
+// Metal. The slot is intentionally reserved and carried in pipeline metadata.
+func (d *Device) MaterialPageCapabilities() hal.MaterialPageCapabilities {
+	return hal.MaterialPageCapabilities{Supported: true, ABIVersion: 1, FragmentBufferIndex: materialPageFragmentBufferIndex}
+}
+
+func (d *Device) CreateMaterialPage(pipeline hal.RenderPipeline, view hal.TextureView, sampler hal.Sampler) (hal.MaterialPage, error) {
+	p, ok := pipeline.(*RenderPipeline)
+	if !ok || p == nil || p.materialPage == nil || p.fragmentFunction == 0 {
+		return nil, fmt.Errorf("metal: material page requires a marked render pipeline")
+	}
+	v, ok := view.(*TextureView)
+	if !ok || v == nil || v.raw == 0 || v.device != d {
+		return nil, fmt.Errorf("metal: material page texture view belongs to another device")
+	}
+	s, ok := sampler.(*Sampler)
+	if !ok || s == nil || s.raw == 0 || s.device != d {
+		return nil, fmt.Errorf("metal: material page sampler belongs to another device")
+	}
+	desc := p.materialPage
+	if desc.ABIVersion != 1 || desc.FragmentBufferIndex != materialPageFragmentBufferIndex || desc.TextureArgumentIndex == desc.SamplerArgumentIndex {
+		return nil, fmt.Errorf("metal: material page ABI metadata is invalid")
+	}
+	encoder := MsgSend(p.fragmentFunction, Sel("newArgumentEncoderWithBufferIndex:"), uintptr(desc.FragmentBufferIndex))
+	if encoder == 0 {
+		return nil, fmt.Errorf("metal: material page argument encoder unavailable")
+	}
+	encodedLength := MsgSendUint(encoder, Sel("encodedLength"))
+	if encodedLength == 0 {
+		Release(encoder)
+		return nil, fmt.Errorf("metal: material page argument encoder has zero encoded length")
+	}
+	buffer := MsgSend(d.raw, Sel("newBufferWithLength:options:"), uintptr(encodedLength), uintptr(MTLResourceStorageModePrivate))
+	if buffer == 0 {
+		Release(encoder)
+		return nil, fmt.Errorf("metal: material page argument buffer allocation failed")
+	}
+	Retain(v.raw)
+	Retain(s.raw)
+	Retain(p.fragmentFunction)
+	_ = MsgSend(encoder, Sel("setArgumentBuffer:offset:"), uintptr(buffer), 0)
+	_ = MsgSend(encoder, Sel("setTexture:atIndex:"), uintptr(v.raw), uintptr(desc.TextureArgumentIndex))
+	_ = MsgSend(encoder, Sel("setSamplerState:atIndex:"), uintptr(s.raw), uintptr(desc.SamplerArgumentIndex))
+	return &MaterialPage{buffer: buffer, texture: v.raw, sampler: s.raw, encoder: encoder, fragmentFunction: p.fragmentFunction, device: d, fragmentBufferIndex: desc.FragmentBufferIndex, pipelineFingerprint: materialPageFingerprint(desc)}, nil
+}
+
+func materialPageFingerprint(d *hal.MaterialPageDescriptor) uint64 {
+	if d == nil {
+		return 0
+	}
+	h := uint64(14695981039346656037)
+	for _, v := range [...]uint32{d.ABIVersion, d.BindGroupIndex, d.TextureBinding, d.SamplerBinding, d.TextureArgumentIndex, d.SamplerArgumentIndex, d.FragmentBufferIndex} {
+		for i := uint(0); i < 4; i++ {
+			h ^= uint64(byte(v >> (i * 8)))
+			h *= 1099511628211
+		}
+	}
+	return h
 }
 
 // newStencilFaceDescriptor builds an MTLStencilDescriptor for one face. The
@@ -836,6 +930,10 @@ func (d *Device) DestroyRenderPipeline(pipeline hal.RenderPipeline) {
 	if mtlPipeline.raw != 0 {
 		Release(mtlPipeline.raw)
 		mtlPipeline.raw = 0
+	}
+	if mtlPipeline.fragmentFunction != 0 {
+		Release(mtlPipeline.fragmentFunction)
+		mtlPipeline.fragmentFunction = 0
 	}
 	mtlPipeline.device = nil
 }

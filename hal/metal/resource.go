@@ -195,10 +195,12 @@ type RenderPipeline struct {
 	cullMode  MTLCullMode
 	frontFace MTLWinding
 
-	depthStencil    ID // id<MTLDepthStencilState>
-	depthBias       float32
-	depthSlopeScale float32
-	depthClamp      float32
+	depthStencil     ID // id<MTLDepthStencilState>
+	depthBias        float32
+	depthSlopeScale  float32
+	depthClamp       float32
+	fragmentFunction ID // retained when a material-page ABI is present
+	materialPage     *hal.MaterialPageDescriptor
 }
 
 // Destroy releases the render pipeline.
@@ -206,6 +208,47 @@ func (p *RenderPipeline) Destroy() {
 	if p.device != nil {
 		p.device.DestroyRenderPipeline(p)
 	}
+}
+
+// MaterialPage is the native immutable argument-buffer page.
+type MaterialPage struct {
+	buffer              ID
+	texture             ID
+	sampler             ID
+	encoder             ID
+	fragmentFunction    ID
+	device              *Device
+	fragmentBufferIndex uint32
+	pipelineFingerprint uint64
+	destroyed           bool
+}
+
+func (p *MaterialPage) Destroy() {
+	if p == nil || p.destroyed {
+		return
+	}
+	p.destroyed = true
+	if p.buffer != 0 {
+		Release(p.buffer)
+		p.buffer = 0
+	}
+	if p.encoder != 0 {
+		Release(p.encoder)
+		p.encoder = 0
+	}
+	if p.fragmentFunction != 0 {
+		Release(p.fragmentFunction)
+		p.fragmentFunction = 0
+	}
+	if p.texture != 0 {
+		Release(p.texture)
+		p.texture = 0
+	}
+	if p.sampler != 0 {
+		Release(p.sampler)
+		p.sampler = 0
+	}
+	p.device = nil
 }
 
 // ComputePipeline implements hal.ComputePipeline for Metal.

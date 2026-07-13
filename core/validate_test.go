@@ -503,6 +503,13 @@ func TestValidateShaderModuleDescriptor_ValidSPIRV(t *testing.T) {
 	}
 }
 
+func TestValidateShaderModuleDescriptor_ValidExplicitMSL(t *testing.T) {
+	desc := &hal.ShaderModuleDescriptor{Source: hal.ShaderSource{MSL: "fragment float4 page() { return float4(1); }", MaterialPage: &hal.MaterialPageDescriptor{ABIVersion: 1}}}
+	if err := ValidateShaderModuleDescriptor(desc); err != nil {
+		t.Fatalf("explicit MSL should be accepted for marked private specializations: %v", err)
+	}
+}
+
 func TestValidateShaderModuleDescriptor_NoSource(t *testing.T) {
 	desc := &hal.ShaderModuleDescriptor{Label: "test"}
 	err := ValidateShaderModuleDescriptor(desc)

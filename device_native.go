@@ -214,13 +214,7 @@ func (d *Device) CreateShaderModule(desc *ShaderModuleDescriptor) (*ShaderModule
 		return nil, ErrReleased
 	}
 
-	halDesc := &hal.ShaderModuleDescriptor{
-		Label: desc.Label,
-		Source: hal.ShaderSource{
-			WGSL:  desc.WGSL,
-			SPIRV: desc.SPIRV,
-		},
-	}
+	halDesc := desc.toHAL()
 
 	if err := core.ValidateShaderModuleDescriptor(halDesc); err != nil {
 		return nil, err
@@ -231,7 +225,7 @@ func (d *Device) CreateShaderModule(desc *ShaderModuleDescriptor) (*ShaderModule
 		return nil, fmt.Errorf("wgpu: failed to create shader module: %w", err)
 	}
 
-	sm := &ShaderModule{hal: halModule, device: d}
+	sm := &ShaderModule{hal: halModule, device: d, materialPage: desc.MaterialPage, materialPageMSL: desc.MSL != ""}
 
 	// Parse WGSL source to naga IR for shader introspection (late binding validation).
 	// Matches Rust wgpu-core which stores the naga Module on ShaderModule for use
@@ -477,6 +471,34 @@ func (d *Device) CreateRenderPipeline(desc *RenderPipelineDescriptor) (*RenderPi
 	if desc == nil {
 		return nil, fmt.Errorf("wgpu: render pipeline descriptor is nil")
 	}
+	if desc.MaterialPage != nil {
+		if !desc.MaterialPage.valid() {
+			return nil, ErrMaterialPageInvalid
+		}
+		if desc.Fragment == nil || desc.Fragment.Module == nil || desc.Fragment.Module.materialPage == nil ||
+			*desc.Fragment.Module.materialPage != *desc.MaterialPage {
+			return nil, fmt.Errorf("%w: shader marker does not match pipeline", ErrMaterialPageInvalid)
+		}
+		if !desc.Fragment.Module.materialPageMSL {
+			return nil, fmt.Errorf("%w: marked material-page shader requires explicit MSL source", ErrMaterialPageInvalid)
+		}
+		if desc.Layout != nil {
+			var bufferSlots uint32
+			for _, layout := range desc.Layout.bindGroupLayouts {
+				if layout == nil {
+					continue
+				}
+				for _, entry := range layout.entries {
+					if entry.Buffer != nil {
+						bufferSlots++
+					}
+				}
+			}
+			if bufferSlots > desc.MaterialPage.FragmentBufferIndex {
+				return nil, fmt.Errorf("%w: fragment buffer slot collides with pipeline layout", ErrMaterialPageInvalid)
+			}
+		}
+	}
 
 	halDevice := d.halDevice()
 	if halDevice == nil {
@@ -524,16 +546,58 @@ func (d *Device) CreateRenderPipeline(desc *RenderPipelineDescriptor) (*RenderPi
 
 	lateGroups := makeLateSizedBufferGroups(shaderBindingSizes, bgLayouts)
 
+	materialFingerprint := uint64(0)
+	if desc.MaterialPage != nil {
+		materialFingerprint = desc.MaterialPage.fingerprint()
+		// The page ABI is pipeline-bound: include the exact layout identity and
+		// entry-point contract so lookalike pipelines cannot inherit a page.
+		mix := func(v uint64) {
+			materialFingerprint ^= v + 0x9e3779b97f4a7c15 + (materialFingerprint << 6) + (materialFingerprint >> 2)
+		}
+		if desc.Layout != nil {
+			for _, layout := range desc.Layout.bindGroupLayouts {
+				if layout == nil {
+					mix(0)
+					continue
+				}
+				for _, entry := range layout.entries {
+					mix(uint64(entry.Binding))
+					if entry.Buffer != nil {
+						mix(1)
+					}
+					if entry.Sampler != nil {
+						mix(2)
+					}
+					if entry.Texture != nil {
+						mix(3)
+					}
+				}
+			}
+		}
+		for _, name := range []string{desc.Vertex.EntryPoint} {
+			for _, b := range []byte(name) {
+				mix(uint64(b))
+			}
+		}
+		if desc.Fragment != nil {
+			for _, b := range []byte(desc.Fragment.EntryPoint) {
+				mix(uint64(b))
+			}
+		}
+	}
+
 	return &RenderPipeline{
-		hal:                   halPipeline,
-		device:                d,
-		bindGroupCount:        bgCount,
-		bindGroupLayouts:      bgLayouts,
-		requiredVertexBuffers: uint32(len(desc.Vertex.Buffers)), //nolint:gosec // buffer count fits uint32
-		blendConstantRequired: needsBlendConstant,
-		stripIndexFormat:      desc.Primitive.StripIndexFormat,
-		lateSizedBufferGroups: lateGroups,
-		ref:                   core.NewResourceRef("RenderPipeline:"+desc.Label, nil),
+		hal:                     halPipeline,
+		device:                  d,
+		bindGroupCount:          bgCount,
+		bindGroupLayouts:        bgLayouts,
+		requiredVertexBuffers:   uint32(len(desc.Vertex.Buffers)), //nolint:gosec // buffer count fits uint32
+		blendConstantRequired:   needsBlendConstant,
+		stripIndexFormat:        desc.Primitive.StripIndexFormat,
+		lateSizedBufferGroups:   lateGroups,
+		ref:                     core.NewResourceRef("RenderPipeline:"+desc.Label, nil),
+		materialPage:            desc.MaterialPage,
+		materialPageFingerprint: materialFingerprint,
 	}, nil
 }
 

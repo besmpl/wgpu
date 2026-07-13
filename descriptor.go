@@ -147,17 +147,43 @@ type ShaderModuleDescriptor struct {
 	Label string
 	WGSL  string   // WGSL source code
 	SPIRV []uint32 // SPIR-V bytecode (alternative to WGSL)
+	MSL   string   // Explicit Metal source for marked private specializations.
+	// MaterialPage marks the explicit Metal shader specialization. It is
+	// ignored unless the pipeline carries the same descriptor.
+	MaterialPage *MaterialPageShaderDescriptor
 }
 
 // toHAL converts a ShaderModuleDescriptor to a hal.ShaderModuleDescriptor.
 func (d *ShaderModuleDescriptor) toHAL() *hal.ShaderModuleDescriptor {
+	var materialPage *hal.MaterialPageDescriptor
+	if d.MaterialPage != nil {
+		materialPage = d.MaterialPage.toHAL()
+	}
 	return &hal.ShaderModuleDescriptor{
 		Label: d.Label,
 		Source: hal.ShaderSource{
-			WGSL:  d.WGSL,
-			SPIRV: d.SPIRV,
+			WGSL:         d.WGSL,
+			SPIRV:        d.SPIRV,
+			MSL:          d.MSL,
+			MaterialPage: materialPage,
 		},
 	}
+}
+
+func (d MaterialPageDescriptor) toHAL() *hal.MaterialPageDescriptor {
+	return &hal.MaterialPageDescriptor{
+		ABIVersion: d.ABIVersion, BindGroupIndex: d.BindGroupIndex,
+		TextureBinding: d.TextureBinding, SamplerBinding: d.SamplerBinding,
+		TextureArgumentIndex: d.TextureArgumentIndex, SamplerArgumentIndex: d.SamplerArgumentIndex,
+		FragmentBufferIndex: d.FragmentBufferIndex,
+	}
+}
+
+func materialPageToHAL(d *MaterialPageDescriptor) *hal.MaterialPageDescriptor {
+	if d == nil {
+		return nil
+	}
+	return d.toHAL()
 }
 
 // CommandEncoderDescriptor describes command encoder creation.
@@ -313,6 +339,9 @@ type RenderPipelineDescriptor struct {
 	// indirect command-buffer path. It is false by default; set it only for
 	// pipelines that will execute prepared indexed indirect commands.
 	SupportIndirectCommandBuffers bool
+	// MaterialPage marks the fixed texture-array + sampler ABI consumed by a
+	// private material page. Ordinary pipelines leave this nil.
+	MaterialPage *MaterialPageDescriptor
 }
 
 // VertexState describes the vertex shader stage.
@@ -337,6 +366,7 @@ func (d *RenderPipelineDescriptor) toHAL() *hal.RenderPipelineDescriptor {
 		Multisample:                   d.Multisample,
 		DepthStencil:                  d.DepthStencil.toHAL(),
 		SupportIndirectCommandBuffers: d.SupportIndirectCommandBuffers,
+		MaterialPage:                  materialPageToHAL(d.MaterialPage),
 	}
 
 	if d.Layout != nil {

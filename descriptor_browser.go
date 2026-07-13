@@ -74,9 +74,11 @@ type SamplerDescriptor struct {
 
 // ShaderModuleDescriptor describes shader module creation parameters.
 type ShaderModuleDescriptor struct {
-	Label string
-	WGSL  string   // WGSL source code
-	SPIRV []uint32 // SPIR-V bytecode (alternative to WGSL)
+	Label        string
+	WGSL         string   // WGSL source code
+	SPIRV        []uint32 // SPIR-V bytecode (alternative to WGSL)
+	MSL          string
+	MaterialPage *MaterialPageShaderDescriptor
 }
 
 // CommandEncoderDescriptor describes command encoder creation.
@@ -164,6 +166,7 @@ type RenderPipelineDescriptor struct {
 	// SupportIndirectCommandBuffers is a native-backend hint and is ignored by
 	// the browser backend.
 	SupportIndirectCommandBuffers bool
+	MaterialPage                  *MaterialPageDescriptor
 }
 
 // VertexState describes the vertex shader stage.

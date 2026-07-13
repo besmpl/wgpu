@@ -343,8 +343,30 @@ type ShaderSource struct {
 	// WGSL is the WGSL source code (if present).
 	WGSL string
 
+	// MSL is an optional explicit Metal source used by the bounded material
+	// page specialization. Other backends may ignore it and report unsupported.
+	MSL string
+
 	// SPIRV is the SPIR-V bytecode (if present).
 	SPIRV []uint32
+
+	// MaterialPage identifies the explicitly lowered Metal argument-buffer
+	// specialization. Other backends ignore this metadata and report the
+	// optional capability as unsupported.
+	MaterialPage *MaterialPageDescriptor
+}
+
+// MaterialPageDescriptor is the HAL copy of the fixed material-page ABI.
+// It intentionally contains data only; allocation and binding are optional
+// extensions declared in material_page.go.
+type MaterialPageDescriptor struct {
+	ABIVersion           uint32
+	BindGroupIndex       uint32
+	TextureBinding       uint32
+	SamplerBinding       uint32
+	TextureArgumentIndex uint32
+	SamplerArgumentIndex uint32
+	FragmentBufferIndex  uint32
 }
 
 // RenderPipelineDescriptor describes a render pipeline.
@@ -374,6 +396,7 @@ type RenderPipelineDescriptor struct {
 	// command-buffer execution path. It is false by default because Metal
 	// rejects ordinary fragment pipelines that are not compatible with ICBs.
 	SupportIndirectCommandBuffers bool
+	MaterialPage                  *MaterialPageDescriptor
 }
 
 // VertexState describes the vertex shader stage.
