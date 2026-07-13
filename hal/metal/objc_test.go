@@ -396,7 +396,8 @@ func TestRenderPassDescriptorClearColor(t *testing.T) {
 	if desc == 0 {
 		t.Fatal("MTLRenderPassDescriptor renderPassDescriptor returned nil")
 	}
-	defer Release(desc)
+	// renderPassDescriptor is autoreleased and remains owned by the pool. An
+	// explicit Release over-releases it before Drain and corrupts the pool.
 
 	attachments := MsgSend(desc, Sel("colorAttachments"))
 	if attachments == 0 {

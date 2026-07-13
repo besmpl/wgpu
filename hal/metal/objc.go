@@ -404,12 +404,13 @@ type autoreleasePoolCallbacks struct {
 }
 
 func newAutoreleasePoolWithCallbacks(callbacks autoreleasePoolCallbacks) (pool *AutoreleasePool) {
+	locked := callbacks.lock != nil
 	if callbacks.lock != nil {
 		callbacks.lock()
 	}
 
 	pool = &AutoreleasePool{
-		locked: true,
+		locked: locked,
 		unlock: callbacks.unlock,
 		drain:  callbacks.drain,
 	}
@@ -422,8 +423,10 @@ func newAutoreleasePoolWithCallbacks(callbacks autoreleasePoolCallbacks) (pool *
 		// the partially constructed pool terminal before releasing that lock so
 		// a future recovery cannot accidentally unlock it twice.
 		pool.pool = 0
-		pool.locked = false
-		if callbacks.unlock != nil {
+		if pool.locked {
+			pool.locked = false
+		}
+		if locked && callbacks.unlock != nil {
 			callbacks.unlock()
 		}
 	}()

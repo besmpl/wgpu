@@ -7,12 +7,13 @@ path is `github.com/besmpl/wgpu`; the source provenance remains the upstream
 so a future publication cannot accidentally resolve the upstream module before
 the prepared-indexed API is available.
 
-This source is published as `v0.31.0-hearth.2` from the owned
-`codex/hearth-v0.31.0-hearth.2` branch. Publication was explicitly authorized
-on 2026-07-13. It supersedes `v0.31.0-hearth.1` by pinning each Metal
+This source is published as `v0.31.0-hearth.3` from the owned
+`codex/hearth-v0.31.0-hearth.3` branch. Publication was explicitly authorized
+on 2026-07-13. It retains the `v0.31.0-hearth.2` production fix that pins each Metal
 autorelease-pool lifetime to one OS thread; physical depth-one lifecycle proof
 exposed that Go goroutine migration could otherwise drain the Objective-C pool
-on a different thread. The fork repository already contains upstream tags
+on a different thread. It also fixes the Metal test's ownership of an
+autoreleased render-pass descriptor so the published full suite is stable. The fork repository already contains upstream tags
 through `v0.30.19`; in particular, `v0.30.4` points to the unmodified base
 commit below and cannot identify this fork's different bytes. The prerelease
 therefore names the breaking prepared-indexed API without moving or reusing an
@@ -81,7 +82,7 @@ reproducible digest:
 ```text
 find . -type f ! -name PROVENANCE.md -print | LC_ALL=C sort |
   while IFS= read -r f; do shasum -a 256 "$f"; done | shasum -a 256
-520e42d3d2578d7a2e68cbb31f4fd20a6aac5609b38daf5bb498552b985422e1
+6365773e9a68b4e677d28bd9c8f8594779f17dea116d04572ae59d2a4404028e
 ```
 
 The source carries the public/core/HAL prepared indexed operation, Vulkan
