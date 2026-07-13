@@ -1,19 +1,22 @@
 # Hearth proof fork provenance
 
-This directory is the owned, development-only source fork for the fixed-count
-indexed multi-draw proof described by Hearth's MDI integration plan. Its module
+This directory is the owned source fork for the fixed-count indexed multi-draw
+proof described by Hearth's MDI integration plan. Its module
 path is `github.com/besmpl/wgpu`; the source provenance remains the upstream
 `github.com/gogpu/wgpu` snapshot recorded below. Hearth imports the owned path
 so a future publication cannot accidentally resolve the upstream module before
 the prepared-indexed API is available.
 
-This source is published as `v0.31.0-hearth.1` from the owned
-`codex/hearth-v0.31.0-hearth.1` branch. Publication was explicitly authorized
-on 2026-07-13. The fork repository already contains upstream tags through
-`v0.30.19`; in particular, `v0.30.4` points to the unmodified base commit below
-and cannot identify this fork's different bytes. The new prerelease therefore
-names the breaking prepared-indexed API without moving or reusing an immutable
-upstream tag.
+This source is published as `v0.31.0-hearth.2` from the owned
+`codex/hearth-v0.31.0-hearth.2` branch. Publication was explicitly authorized
+on 2026-07-13. It supersedes `v0.31.0-hearth.1` by pinning each Metal
+autorelease-pool lifetime to one OS thread; physical depth-one lifecycle proof
+exposed that Go goroutine migration could otherwise drain the Objective-C pool
+on a different thread. The fork repository already contains upstream tags
+through `v0.30.19`; in particular, `v0.30.4` points to the unmodified base
+commit below and cannot identify this fork's different bytes. The prerelease
+therefore names the breaking prepared-indexed API without moving or reusing an
+immutable upstream tag.
 
 - Upstream repository: https://github.com/gogpu/wgpu
 - Upstream base tag: `v0.30.4`
@@ -71,20 +74,20 @@ batch; observed GPU time ranged from 64,958 to 10,159,333 ns per operation.
 The measurements confirm that prepared execution wins for large homogeneous
 sets but must not be forced across fragmented material/arena sets.
 
-The source snapshot starts from the exact tagged module revision above and is
-not itself a git checkout. Its exact bytes (excluding this provenance note)
-are identified by this reproducible digest:
+The published source starts from the exact tagged module revision above. Its
+exact bytes (excluding this provenance note) are identified by this
+reproducible digest:
 
 ```text
 find . -type f ! -name PROVENANCE.md -print | LC_ALL=C sort |
   while IFS= read -r f; do shasum -a 256 "$f"; done | shasum -a 256
-2e2d628b5ed6796e022471d89b730c9e89b9acfedde81aafb8d27c969568ec24
+520e42d3d2578d7a2e68cbb31f4fd20a6aac5609b38daf5bb498552b985422e1
 ```
 
-The snapshot carries the public/core/HAL prepared indexed operation, Vulkan
+The source carries the public/core/HAL prepared indexed operation, Vulkan
 and DX12 native command forwarding, Metal's GPU-generated ICB preparation
 path, and explicit unsupported methods for browser, Rust, GLES, software, and
-noop routes. The snapshot is intentionally not claimed to be byte-identical
+noop routes. The source is intentionally not claimed to be byte-identical
 to PR #253: the PR is based on `main` (`d5834be...`), while this proof copy is
 based on `v0.30.4` and contains the additional prepared-route work used by
 Hearth. The digest above, together with the base commit and this note, is the
