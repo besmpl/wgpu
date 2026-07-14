@@ -15,20 +15,22 @@ import (
 // directly from opengl32.dll for GL 1.1 functions.
 type Context struct {
 	// Core GL 1.1 (from opengl32.dll)
-	glGetError     uintptr
-	glGetString    uintptr
-	glGetIntegerv  uintptr
-	glEnable       uintptr
-	glDisable      uintptr
-	glClear        uintptr
-	glClearColor   uintptr
-	glClearDepth   uintptr
-	glViewport     uintptr
-	glScissor      uintptr
-	glDrawArrays   uintptr
-	glDrawElements uintptr
-	glFlush        uintptr
-	glFinish       uintptr
+	glGetError             uintptr
+	glGetString            uintptr
+	glGetIntegerv          uintptr
+	glEnable               uintptr
+	glDisable              uintptr
+	glClear                uintptr
+	glClearColor           uintptr
+	glClearDepth           uintptr
+	glViewport             uintptr
+	glScissor              uintptr
+	glDrawArrays           uintptr
+	glDrawElements         uintptr
+	glDrawArraysIndirect   uintptr
+	glDrawElementsIndirect uintptr
+	glFlush                uintptr
+	glFinish               uintptr
 
 	// Shaders (GL 2.0+)
 	glCreateShader       uintptr
@@ -196,6 +198,8 @@ func (c *Context) Load(getProcAddr ProcAddressFunc) error {
 	c.glScissor = getProcAddr("glScissor")
 	c.glDrawArrays = getProcAddr("glDrawArrays")
 	c.glDrawElements = getProcAddr("glDrawElements")
+	c.glDrawArraysIndirect = getProcAddr("glDrawArraysIndirect")
+	c.glDrawElementsIndirect = getProcAddr("glDrawElementsIndirect")
 	c.glFlush = getProcAddr("glFlush")
 	c.glFinish = getProcAddr("glFinish")
 
@@ -416,6 +420,20 @@ func (c *Context) DrawArrays(mode uint32, first, count int32) {
 
 func (c *Context) DrawElements(mode uint32, count int32, typ uint32, indices uintptr) {
 	syscall.SyscallN(c.glDrawElements, uintptr(mode), uintptr(count), uintptr(typ), indices)
+}
+
+func (c *Context) DrawArraysIndirect(mode uint32, indirect uintptr) {
+	if c.glDrawArraysIndirect == 0 {
+		return
+	}
+	syscall.SyscallN(c.glDrawArraysIndirect, uintptr(mode), indirect)
+}
+
+func (c *Context) DrawElementsIndirect(mode, typ uint32, indirect uintptr) {
+	if c.glDrawElementsIndirect == 0 {
+		return
+	}
+	syscall.SyscallN(c.glDrawElementsIndirect, uintptr(mode), uintptr(typ), indirect)
 }
 
 func (c *Context) Flush() {

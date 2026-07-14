@@ -651,19 +651,62 @@ func (e *RenderPassEncoder) DrawIndexed(indexCount, instanceCount, firstIndex ui
 }
 
 // DrawIndirect draws primitives with GPU-generated parameters.
-// Note: Requires GL_ARB_draw_indirect (GL 4.0+ / GLES 3.1+).
-// Currently not implemented - use direct Draw calls instead.
-func (e *RenderPassEncoder) DrawIndirect(buffer hal.Buffer, offset uint64) {
-	_ = buffer
-	_ = offset
+func (e *RenderPassEncoder) DrawIndirect(buffer hal.Buffer, offset uint64, drawCount uint32) {
+	buf, ok := buffer.(*Buffer)
+	if !ok || buf == nil || drawCount == 0 {
+		return
+	}
+	if !indirectRangeFits(buf.size, offset, 16, drawCount) {
+		return
+	}
+	if _, ok := indirectRecordOffset(offset, 16, drawCount-1); !ok {
+		return
+	}
+	topology := gputypes.PrimitiveTopologyTriangleList
+	if e.pipeline != nil {
+		topology = e.pipeline.primitiveTopology
+	}
+	for i := uint32(0); i < drawCount; i++ {
+		recordOffset, _ := indirectRecordOffset(offset, 16, i)
+		e.encoder.commands = append(e.encoder.commands, &DrawIndirectCommand{buffer: buf, offset: recordOffset, topology: topology})
+	}
 }
 
 // DrawIndexedIndirect draws indexed primitives with GPU-generated parameters.
-// Note: Requires GL_ARB_draw_indirect (GL 4.0+ / GLES 3.1+).
-// Currently not implemented - use direct DrawIndexed calls instead.
-func (e *RenderPassEncoder) DrawIndexedIndirect(buffer hal.Buffer, offset uint64) {
-	_ = buffer
-	_ = offset
+func (e *RenderPassEncoder) DrawIndexedIndirect(buffer hal.Buffer, offset uint64, drawCount uint32) {
+	buf, ok := buffer.(*Buffer)
+	if !ok || buf == nil || drawCount == 0 {
+		return
+	}
+	if !indirectRangeFits(buf.size, offset, 20, drawCount) {
+		return
+	}
+	if _, ok := indirectRecordOffset(offset, 20, drawCount-1); !ok {
+		return
+	}
+	topology := gputypes.PrimitiveTopologyTriangleList
+	if e.pipeline != nil {
+		topology = e.pipeline.primitiveTopology
+	}
+	for i := uint32(0); i < drawCount; i++ {
+		recordOffset, _ := indirectRecordOffset(offset, 20, i)
+		e.encoder.commands = append(e.encoder.commands, &DrawIndexedIndirectCommand{buffer: buf, offset: recordOffset, indexFormat: e.indexFormat, topology: topology})
+	}
+}
+
+func indirectRecordOffset(offset, stride uint64, index uint32) (uint64, bool) {
+	delta := uint64(index) * stride
+	if offset > ^uint64(0)-delta {
+		return 0, false
+	}
+	return offset + delta, true
+}
+
+func indirectRangeFits(bufferSize, offset, stride uint64, drawCount uint32) bool {
+	if offset > bufferSize {
+		return false
+	}
+	return uint64(drawCount) <= (bufferSize-offset)/stride
 }
 
 // ExecuteBundle executes a pre-recorded render bundle.
@@ -1378,6 +1421,37 @@ func (c *DrawIndexedCommand) Execute(ctx *gl.Context) {
 	} else {
 		ctx.DrawElementsInstanced(mode, int32(c.indexCount), indexType, offset, int32(c.instanceCount))
 	}
+}
+
+// DrawIndirectCommand executes one non-indexed indirect record.
+type DrawIndirectCommand struct {
+	buffer   *Buffer
+	offset   uint64
+	topology gputypes.PrimitiveTopology
+}
+
+func (c *DrawIndirectCommand) Execute(ctx *gl.Context) {
+	ctx.BindBuffer(gl.DRAW_INDIRECT_BUFFER, c.buffer.id)
+	ctx.DrawArraysIndirect(primitiveTopologyToGL(c.topology), uintptr(c.offset))
+	ctx.BindBuffer(gl.DRAW_INDIRECT_BUFFER, 0)
+}
+
+// DrawIndexedIndirectCommand executes one indexed indirect record.
+type DrawIndexedIndirectCommand struct {
+	buffer      *Buffer
+	offset      uint64
+	indexFormat gputypes.IndexFormat
+	topology    gputypes.PrimitiveTopology
+}
+
+func (c *DrawIndexedIndirectCommand) Execute(ctx *gl.Context) {
+	indexType := uint32(gl.UNSIGNED_SHORT)
+	if c.indexFormat == gputypes.IndexFormatUint32 {
+		indexType = gl.UNSIGNED_INT
+	}
+	ctx.BindBuffer(gl.DRAW_INDIRECT_BUFFER, c.buffer.id)
+	ctx.DrawElementsIndirect(primitiveTopologyToGL(c.topology), indexType, uintptr(c.offset))
+	ctx.BindBuffer(gl.DRAW_INDIRECT_BUFFER, 0)
 }
 
 // CopyBufferCommand copies between buffers.

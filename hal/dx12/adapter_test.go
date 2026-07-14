@@ -62,3 +62,26 @@ func TestAdapterFeaturesAdvertiseIndexedMultiDrawOnlyWhenSupported(t *testing.T)
 		})
 	}
 }
+
+func TestLegacyAdapterFeaturesAdvertiseMultiDrawOnlyWhenSupported(t *testing.T) {
+	const multiDraw = gputypes.Features(gputypes.FeatureMultiDrawIndirect)
+
+	for _, tt := range []struct {
+		name  string
+		level d3d12.D3D_FEATURE_LEVEL
+		want  bool
+	}{
+		{name: "uninitialized", level: 0, want: false},
+		{name: "below D3D12", level: d3d12.D3D_FEATURE_LEVEL_10_1, want: false},
+		{name: "legacy DX12", level: d3d12.D3D_FEATURE_LEVEL_11_0, want: true},
+		{name: "modern DX12", level: d3d12.D3D_FEATURE_LEVEL_12_0, want: true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			adapter := &AdapterLegacy{capabilities: AdapterCapabilities{FeatureLevel: tt.level}}
+			got := adapter.Features() & multiDraw
+			if (got != 0) != tt.want {
+				t.Fatalf("Features() multi-draw bit = %#x, want advertised %t", got, tt.want)
+			}
+		})
+	}
+}

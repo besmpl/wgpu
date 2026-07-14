@@ -574,6 +574,11 @@ func (a *AdapterLegacy) toExposedAdapter() hal.ExposedAdapter {
 // Features returns supported WebGPU features for legacy adapter.
 func (a *AdapterLegacy) Features() gputypes.Features {
 	var features gputypes.Features
+	// ExecuteIndirect supports counted draws at every valid D3D12 feature
+	// level. Keep the hint conservative for zero-value or failed probes.
+	if supportsIndexedExecuteIndirect(a.capabilities.FeatureLevel) {
+		features |= gputypes.Features(gputypes.FeatureMultiDrawIndirect)
+	}
 	if a.capabilities.FeatureLevel >= d3d12.D3D_FEATURE_LEVEL_11_0 {
 		features |= gputypes.Features(gputypes.FeatureTextureCompressionBC)
 	}

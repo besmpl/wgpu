@@ -908,30 +908,42 @@ func (e *RenderPassEncoder) DrawIndexed(indexCount, instanceCount, firstIndex ui
 // DrawIndirect draws primitives with GPU-generated parameters.
 // The buffer must contain a D3D12_DRAW_ARGUMENTS struct at the given offset
 // (vertexCountPerInstance, instanceCount, startVertexLocation, startInstanceLocation — 16 bytes).
-func (e *RenderPassEncoder) DrawIndirect(buffer hal.Buffer, offset uint64) {
+func (e *RenderPassEncoder) DrawIndirect(buffer hal.Buffer, offset uint64, drawCount uint32) {
 	buf, ok := buffer.(*Buffer)
-	if !ok || !e.encoder.isRecording {
+	if !ok || !e.encoder.isRecording || drawCount == 0 {
+		return
+	}
+	if !indirectRangeFits(buf.size, offset, 16, drawCount) {
+		return
+	}
+	if _, ok := indirectRecordOffset(offset, 16, drawCount-1); !ok {
 		return
 	}
 
 	e.encoder.cmdList.ExecuteIndirect(
 		e.encoder.device.cmdSignatures.draw,
-		1, buf.raw, offset, nil, 0,
+		drawCount, buf.raw, offset, nil, 0,
 	)
 }
 
 // DrawIndexedIndirect draws indexed primitives with GPU-generated parameters.
 // The buffer must contain a D3D12_DRAW_INDEXED_ARGUMENTS struct at the given offset
 // (indexCountPerInstance, instanceCount, startIndexLocation, baseVertexLocation, startInstanceLocation — 20 bytes).
-func (e *RenderPassEncoder) DrawIndexedIndirect(buffer hal.Buffer, offset uint64) {
+func (e *RenderPassEncoder) DrawIndexedIndirect(buffer hal.Buffer, offset uint64, drawCount uint32) {
 	buf, ok := buffer.(*Buffer)
-	if !ok || !e.encoder.isRecording {
+	if !ok || !e.encoder.isRecording || drawCount == 0 {
+		return
+	}
+	if !indirectRangeFits(buf.size, offset, 20, drawCount) {
+		return
+	}
+	if _, ok := indirectRecordOffset(offset, 20, drawCount-1); !ok {
 		return
 	}
 
 	e.encoder.cmdList.ExecuteIndirect(
 		e.encoder.device.cmdSignatures.drawIndexed,
-		1, buf.raw, offset, nil, 0,
+		drawCount, buf.raw, offset, nil, 0,
 	)
 }
 
@@ -955,6 +967,21 @@ func (e *RenderPassEncoder) executePreparedIndexed(buffer hal.Buffer, offset uin
 // exact ExecuteIndirect count/stride contract without a live D3D12 device.
 var preparedIndexedExecuteIndirect = func(list *d3d12.ID3D12GraphicsCommandList, signature *d3d12.ID3D12CommandSignature, count uint32, buffer *d3d12.ID3D12Resource, offset uint64, countBuffer *d3d12.ID3D12Resource, countOffset uint64) {
 	list.ExecuteIndirect(signature, count, buffer, offset, countBuffer, countOffset)
+}
+
+func indirectRecordOffset(offset, stride uint64, index uint32) (uint64, bool) {
+	delta := uint64(index) * stride
+	if offset > ^uint64(0)-delta {
+		return 0, false
+	}
+	return offset + delta, true
+}
+
+func indirectRangeFits(bufferSize, offset, stride uint64, drawCount uint32) bool {
+	if offset > bufferSize {
+		return false
+	}
+	return uint64(drawCount) <= (bufferSize-offset)/stride
 }
 
 // ExecuteBundle executes a pre-recorded render bundle.

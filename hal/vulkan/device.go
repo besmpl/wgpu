@@ -56,15 +56,20 @@ var renderPassPool = sync.Pool{
 
 // Device implements hal.Device for Vulkan.
 type Device struct {
-	handle              vk.Device
-	physicalDevice      vk.PhysicalDevice
-	instance            *Instance
-	graphicsFamily      uint32
-	allocator           *memory.GpuAllocator
-	cmds                *vk.Commands
-	descriptorAllocator *DescriptorAllocator // Descriptor pool management for bind groups
-	queue               *Queue               // Primary queue (for swapchain synchronization)
-	renderPassCache     *RenderPassCache     // Cache for VkRenderPass and VkFramebuffer objects
+	handle                    vk.Device
+	physicalDevice            vk.PhysicalDevice
+	instance                  *Instance
+	graphicsFamily            uint32
+	allocator                 *memory.GpuAllocator
+	cmds                      *vk.Commands
+	supportsMultiDrawIndirect bool
+	// maxDrawIndirectCount is the physical-device limit for one indirect
+	// operation. Zero keeps the prepared route unsupported and forces counted
+	// public draws through the exact fallback loop.
+	maxDrawIndirectCount uint32
+	descriptorAllocator  *DescriptorAllocator // Descriptor pool management for bind groups
+	queue                *Queue               // Primary queue (for swapchain synchronization)
+	renderPassCache      *RenderPassCache     // Cache for VkRenderPass and VkFramebuffer objects
 
 	// supportsIncrementalPresent is true when VK_KHR_incremental_present
 	// is enabled on this device. When true, Present can chain
@@ -95,10 +100,6 @@ type Device struct {
 	// (from VkPhysicalDeviceLimits.TimestampPeriod). Intel typically 1.0,
 	// AMD/NVIDIA vary. Queried during initAllocator.
 	timestampPeriod float32
-
-	// maxDrawIndirectCount is the physical-device limit for one indexed
-	// indirect operation. Zero keeps the prepared route unsupported.
-	maxDrawIndirectCount uint32
 
 	// mappedMemory tracks persistently mapped VkDeviceMemory objects.
 	// Vulkan only allows one active vkMapMemory per VkDeviceMemory;

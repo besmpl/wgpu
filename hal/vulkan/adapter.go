@@ -148,8 +148,9 @@ func (a *Adapter) Open(features gputypes.Features, limits gputypes.Limits) (hal.
 		instance:                   a.instance,
 		graphicsFamily:             uint32(graphicsFamily),
 		cmds:                       &deviceCmds,
-		supportsIncrementalPresent: hasIncrementalPresent,
+		supportsMultiDrawIndirect:  a.features.MultiDrawIndirect != 0,
 		maxDrawIndirectCount:       a.properties.Limits.MaxDrawIndirectCount,
+		supportsIncrementalPresent: hasIncrementalPresent,
 	}
 
 	// Initialize synchronization fence (VK-IMPL-001 / VK-IMPL-003).

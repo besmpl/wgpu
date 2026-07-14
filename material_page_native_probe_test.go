@@ -170,9 +170,13 @@ fragment float4 fs(VSOut in [[stage_in]], constant MaterialPageArgs& args [[buff
 	if !bytes.Equal(prepared, preparedSecond) {
 		t.Fatal("consecutive prepared page frames differ")
 	}
+	counted := renderMaterialPageCounted(t, device, queue, unflagged, page, vertex, index, indirect)
 	oracle := renderMaterialPageOracle(t, device, queue, unflagged, page, vertex, index, indirect)
 	if !bytes.Equal(prepared, oracle) {
 		t.Fatalf("prepared page readback differs from individual page draws (prepared=%x oracle=%x)", prepared[:minInt(32, len(prepared))], oracle[:minInt(32, len(oracle))])
+	}
+	if !bytes.Equal(counted, oracle) {
+		t.Fatalf("counted page readback differs from individual page draws (counted=%x oracle=%x)", counted[:minInt(32, len(counted))], oracle[:minInt(32, len(oracle))])
 	}
 	if !hasExpectedMaterialLayers(prepared) {
 		t.Fatalf("page readback did not sample layer 0 red on the left and layer 1 green on the right: %x", prepared[:minInt(64, len(prepared))])
@@ -221,14 +225,25 @@ func hasExpectedMaterialLayers(data []byte) bool {
 	return true
 }
 
+type materialPageDrawMode uint8
+
+const (
+	materialPageDrawPrepared materialPageDrawMode = iota
+	materialPageDrawCounted
+	materialPageDrawIndividual
+)
+
 func renderMaterialPageFrame(t *testing.T, device *Device, queue *Queue, pipeline *RenderPipeline, page *MaterialPage, vertex, index, indirect *Buffer) []byte {
-	return renderMaterialPage(t, device, queue, pipeline, page, vertex, index, indirect, true)
+	return renderMaterialPage(t, device, queue, pipeline, page, vertex, index, indirect, materialPageDrawPrepared)
+}
+func renderMaterialPageCounted(t *testing.T, device *Device, queue *Queue, pipeline *RenderPipeline, page *MaterialPage, vertex, index, indirect *Buffer) []byte {
+	return renderMaterialPage(t, device, queue, pipeline, page, vertex, index, indirect, materialPageDrawCounted)
 }
 func renderMaterialPageOracle(t *testing.T, device *Device, queue *Queue, pipeline *RenderPipeline, page *MaterialPage, vertex, index, indirect *Buffer) []byte {
-	return renderMaterialPage(t, device, queue, pipeline, page, vertex, index, indirect, false)
+	return renderMaterialPage(t, device, queue, pipeline, page, vertex, index, indirect, materialPageDrawIndividual)
 }
 
-func renderMaterialPage(t *testing.T, device *Device, queue *Queue, pipeline *RenderPipeline, page *MaterialPage, vertex, index, indirect *Buffer, prepared bool) []byte {
+func renderMaterialPage(t *testing.T, device *Device, queue *Queue, pipeline *RenderPipeline, page *MaterialPage, vertex, index, indirect *Buffer, mode materialPageDrawMode) []byte {
 	target, err := device.CreateTexture(&TextureDescriptor{Size: Extent3D{Width: 4, Height: 2, DepthOrArrayLayers: 1}, MipLevelCount: 1, SampleCount: 1, Dimension: TextureDimension2D, Format: TextureFormatRGBA8Unorm, Usage: TextureUsageRenderAttachment | TextureUsageCopySrc})
 	if err != nil {
 		t.Fatal(err)
@@ -244,7 +259,7 @@ func renderMaterialPage(t *testing.T, device *Device, queue *Queue, pipeline *Re
 		t.Fatal(err)
 	}
 	var token *PreparedIndexedCommands
-	if prepared {
+	if mode == materialPageDrawPrepared {
 		token, err = enc.PrepareIndexedCommands(PreparedIndexedCommandsDescriptor{Arguments: indirect, Count: 2, IndexBuffer: index, IndexFormat: gputypes.IndexFormatUint32})
 		if err != nil {
 			t.Fatal(err)
@@ -260,13 +275,18 @@ func renderMaterialPage(t *testing.T, device *Device, queue *Queue, pipeline *Re
 	}
 	pass.SetVertexBuffer(0, vertex, 0)
 	pass.SetIndexBuffer(index, gputypes.IndexFormatUint32, 0)
-	if prepared {
+	switch mode {
+	case materialPageDrawPrepared:
 		if err := pass.ExecutePreparedIndexedCommands(token); err != nil {
 			t.Fatal(err)
 		}
-	} else {
+	case materialPageDrawCounted:
+		pass.MultiDrawIndexedIndirect(indirect, 0, 2)
+	case materialPageDrawIndividual:
 		pass.DrawIndexed(6, 1, 0, 0, 0)
 		pass.DrawIndexed(6, 1, 6, 4, 1)
+	default:
+		t.Fatalf("unknown material-page draw mode %d", mode)
 	}
 	if err := pass.End(); err != nil {
 		t.Fatal(err)

@@ -22,6 +22,8 @@ var (
 	cifVoid2         types.CallInterface // void fn(uint32, void*)
 	cifVoid2UU       types.CallInterface // void fn(uint32, uint32)
 	cifVoid3         types.CallInterface // void fn(uint32, uint32, uint32)
+	cifVoid2Indirect types.CallInterface // void fn(uint32, void*)
+	cifVoid3Indirect types.CallInterface // void fn(uint32, uint32, void*)
 	cifVoid4         types.CallInterface // void fn(uint32, uint32, uint32, uint32)
 	cifVoid4Float    types.CallInterface // void fn(float, float, float, float)
 	cifVoid4Shader   types.CallInterface // void fn(uint32, int32, void*, void*)
@@ -158,6 +160,18 @@ func initCommonCallInterfaces() error {
 			types.UInt32TypeDescriptor,
 			types.UInt32TypeDescriptor,
 		})
+	if err != nil {
+		return err
+	}
+	err = ffi.PrepareCallInterface(&cifVoid2Indirect, types.DefaultCall,
+		types.VoidTypeDescriptor,
+		[]*types.TypeDescriptor{types.UInt32TypeDescriptor, types.PointerTypeDescriptor})
+	if err != nil {
+		return err
+	}
+	err = ffi.PrepareCallInterface(&cifVoid3Indirect, types.DefaultCall,
+		types.VoidTypeDescriptor,
+		[]*types.TypeDescriptor{types.UInt32TypeDescriptor, types.UInt32TypeDescriptor, types.PointerTypeDescriptor})
 	if err != nil {
 		return err
 	}
@@ -381,20 +395,22 @@ func initCommonCallInterfaces() error {
 // Functions are loaded via eglGetProcAddress for all OpenGL functions.
 type Context struct {
 	// Core GL 1.1
-	glGetError     unsafe.Pointer
-	glGetString    unsafe.Pointer
-	glGetIntegerv  unsafe.Pointer
-	glEnable       unsafe.Pointer
-	glDisable      unsafe.Pointer
-	glClear        unsafe.Pointer
-	glClearColor   unsafe.Pointer
-	glClearDepth   unsafe.Pointer
-	glViewport     unsafe.Pointer
-	glScissor      unsafe.Pointer
-	glDrawArrays   unsafe.Pointer
-	glDrawElements unsafe.Pointer
-	glFlush        unsafe.Pointer
-	glFinish       unsafe.Pointer
+	glGetError             unsafe.Pointer
+	glGetString            unsafe.Pointer
+	glGetIntegerv          unsafe.Pointer
+	glEnable               unsafe.Pointer
+	glDisable              unsafe.Pointer
+	glClear                unsafe.Pointer
+	glClearColor           unsafe.Pointer
+	glClearDepth           unsafe.Pointer
+	glViewport             unsafe.Pointer
+	glScissor              unsafe.Pointer
+	glDrawArrays           unsafe.Pointer
+	glDrawElements         unsafe.Pointer
+	glDrawArraysIndirect   unsafe.Pointer
+	glDrawElementsIndirect unsafe.Pointer
+	glFlush                unsafe.Pointer
+	glFinish               unsafe.Pointer
 
 	// Shaders (GL 2.0+)
 	glCreateShader       unsafe.Pointer
@@ -576,6 +592,8 @@ func (c *Context) Load(getProcAddr ProcAddressFunc, isGLES ...bool) error {
 	c.glScissor = getProcAddr("glScissor")
 	c.glDrawArrays = getProcAddr("glDrawArrays")
 	c.glDrawElements = getProcAddr("glDrawElements")
+	c.glDrawArraysIndirect = getProcAddr("glDrawArraysIndirect")
+	c.glDrawElementsIndirect = getProcAddr("glDrawElementsIndirect")
 	c.glFlush = getProcAddr("glFlush")
 	c.glFinish = getProcAddr("glFinish")
 
@@ -866,6 +884,22 @@ func (c *Context) DrawElements(mode uint32, count int32, typ uint32, indices uin
 		unsafe.Pointer(&indices),
 	}
 	_ = ffi.CallFunction(&cifVoid4, c.glDrawElements, nil, args[:])
+}
+
+func (c *Context) DrawArraysIndirect(mode uint32, indirect uintptr) {
+	if c.glDrawArraysIndirect == nil {
+		return
+	}
+	args := [...]unsafe.Pointer{unsafe.Pointer(&mode), unsafe.Pointer(&indirect)}
+	_ = ffi.CallFunction(&cifVoid2Indirect, c.glDrawArraysIndirect, nil, args[:])
+}
+
+func (c *Context) DrawElementsIndirect(mode, typ uint32, indirect uintptr) {
+	if c.glDrawElementsIndirect == nil {
+		return
+	}
+	args := [...]unsafe.Pointer{unsafe.Pointer(&mode), unsafe.Pointer(&typ), unsafe.Pointer(&indirect)}
+	_ = ffi.CallFunction(&cifVoid3Indirect, c.glDrawElementsIndirect, nil, args[:])
 }
 
 func (c *Context) Flush() {

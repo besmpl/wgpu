@@ -5,6 +5,19 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Changed
+
+- **Counted indirect draws** — added `RenderPassEncoder.MultiDrawIndirect` and
+  `MultiDrawIndexedIndirect` for consecutive 16-byte and 20-byte argument
+  records. Existing two-argument `DrawIndirect` and `DrawIndexedIndirect`
+  remain single-draw APIs. The Vulkan `FeatureMultiDrawIndirect` capability is
+  used only as a performance hint; multi-draw calls fall back to exact loops
+  when unavailable or over the device limit. `FeatureMultiDrawIndirectCount`
+  remains reserved for future GPU-driven count buffers. External HAL adapters
+  must add the `drawCount` parameter to both indirect draw methods.
+
 ## [0.30.4] - 2026-06-25
 
 ### Fixed
