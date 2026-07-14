@@ -180,6 +180,7 @@ fragment float4 fs(VSOut in [[stage_in]], constant MaterialPageArgs& args [[buff
 	if err := testMaterialPageSubmitRejectsReleased(t, device, queue, flagged, pageView, sampler, vertex, index, indirect); !errors.Is(err, ErrMaterialPageReleased) {
 		t.Fatalf("release-before-submit error = %v", err)
 	}
+	testMaterialPageSubmitRejectsReleasedChildren(t, device, queue, flagged, vertex, index, indirect)
 	testMaterialPageReleaseAfterSubmit(t, device, queue, flagged, vertex, index, indirect)
 	// The page's retained fragment function/argument buffer must survive its
 	// source pipeline release; release-before-page is deliberately exercised.
@@ -338,6 +339,97 @@ func testMaterialPageSubmitRejectsReleased(t *testing.T, device *Device, queue *
 		t.Fatal(err)
 	}
 	page.Release()
+	_, err = queue.Submit(cb)
+	cb.Release()
+	return err
+}
+
+// testMaterialPageSubmitRejectsReleasedChildren keeps the page itself alive
+// while releasing each source dependency independently after Finish and before
+// Submit. Queue validation must report the stable released-resource sentinel
+// for each dependency (ErrMaterialPageReleased for a view/sampler and the
+// regular ErrSubmitTextureDestroyed sentinel for the tracked root texture).
+func testMaterialPageSubmitRejectsReleasedChildren(t *testing.T, device *Device, queue *Queue, pipeline *RenderPipeline, vertex, index, indirect *Buffer) {
+	t.Helper()
+	for _, tc := range []struct {
+		name    string
+		want    error
+		release func(*MaterialPage, *TextureView, *Sampler, *Texture)
+	}{
+		{name: "source texture view", want: ErrMaterialPageReleased, release: func(_ *MaterialPage, view *TextureView, _ *Sampler, _ *Texture) { view.Release() }},
+		{name: "source sampler", want: ErrMaterialPageReleased, release: func(_ *MaterialPage, _ *TextureView, sampler *Sampler, _ *Texture) { sampler.Release() }},
+		// SetMaterialPage also tracks the root texture as a regular texture
+		// reference, so this path is reported by the stable submit-texture
+		// sentinel before the page-child check runs.
+		{name: "root texture", want: ErrSubmitTextureDestroyed, release: func(_ *MaterialPage, _ *TextureView, _ *Sampler, texture *Texture) { texture.Release() }},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := recordMaterialPageSubmitWithRelease(t, device, queue, pipeline, vertex, index, indirect, tc.release)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("release-before-submit error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func recordMaterialPageSubmitWithRelease(t *testing.T, device *Device, queue *Queue, pipeline *RenderPipeline, vertex, index, indirect *Buffer, release func(*MaterialPage, *TextureView, *Sampler, *Texture)) error {
+	t.Helper()
+	pageTexture, err := device.CreateTexture(&TextureDescriptor{Label: "material page negative texture", Size: Extent3D{Width: 1, Height: 1, DepthOrArrayLayers: 2}, MipLevelCount: 1, SampleCount: 1, Dimension: TextureDimension2D, Format: TextureFormatRGBA8Unorm, Usage: TextureUsageTextureBinding | TextureUsageCopyDst})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pageTexture.Release()
+	pageView, err := device.CreateTextureView(pageTexture, &TextureViewDescriptor{Dimension: gputypes.TextureViewDimension2DArray, ArrayLayerCount: 2})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer pageView.Release()
+	sampler, err := device.CreateSampler(&SamplerDescriptor{AddressModeU: gputypes.AddressModeClampToEdge, AddressModeV: gputypes.AddressModeClampToEdge, AddressModeW: gputypes.AddressModeClampToEdge, MagFilter: gputypes.FilterModeNearest, MinFilter: gputypes.FilterModeNearest, MipmapFilter: gputypes.FilterModeNearest})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer sampler.Release()
+	page, err := pipeline.NewMaterialPage(pageView, sampler)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer page.Release()
+
+	target, err := device.CreateTexture(&TextureDescriptor{Label: "material page negative target", Size: Extent3D{Width: 1, Height: 1, DepthOrArrayLayers: 1}, MipLevelCount: 1, SampleCount: 1, Dimension: TextureDimension2D, Format: TextureFormatRGBA8Unorm, Usage: TextureUsageRenderAttachment})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer target.Release()
+	targetView, err := device.CreateTextureView(target, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer targetView.Release()
+	enc, err := device.CreateCommandEncoder(nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass, err := enc.BeginRenderPass(&RenderPassDescriptor{ColorAttachments: []RenderPassColorAttachment{{View: targetView, LoadOp: gputypes.LoadOpClear, StoreOp: gputypes.StoreOpStore}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pass.SetPipeline(pipeline)
+	if err := pass.SetMaterialPage(page); err != nil {
+		t.Fatal(err)
+	}
+	pass.SetVertexBuffer(0, vertex, 0)
+	pass.SetIndexBuffer(index, gputypes.IndexFormatUint32, 0)
+	pass.DrawIndexedIndirect(indirect, 0)
+	if err := pass.End(); err != nil {
+		t.Fatal(err)
+	}
+	cb, err := enc.Finish()
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The release under test is deliberately after recording and Finish, but
+	// before Queue.Submit. The command buffer remains unsubmitted on failure.
+	release(page, pageView, sampler, pageTexture)
 	_, err = queue.Submit(cb)
 	cb.Release()
 	return err
