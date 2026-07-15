@@ -65,6 +65,8 @@ func vulkanLibraryName() string {
 		return "vulkan-1.dll"
 	case "darwin":
 		return "libvulkan.dylib" // MoltenVK
+	case "android":
+		return "libvulkan.so"
 	default: // linux, freebsd, etc.
 		return "libvulkan.so.1"
 	}

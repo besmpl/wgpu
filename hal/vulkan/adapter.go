@@ -245,6 +245,9 @@ func (a *Adapter) SurfaceCapabilities(surface hal.Surface) *hal.SurfaceCapabilit
 	if !ok || vkSurface == nil || vkSurface.handle == 0 {
 		return nil
 	}
+	if vkSurface.validatePlatform() != nil {
+		return nil
+	}
 
 	// Query surface capabilities for alpha modes
 	var surfaceCaps vk.SurfaceCapabilitiesKHR

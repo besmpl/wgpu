@@ -66,6 +66,9 @@ func (c *Commands) LoadGlobal() error {
 
 	// Load vkEnumerateInstanceExtensionProperties
 	c.enumerateInstanceExtensionProperties = GetInstanceProcAddr(0, "vkEnumerateInstanceExtensionProperties")
+	if c.enumerateInstanceExtensionProperties == nil {
+		return fmt.Errorf("failed to load vkEnumerateInstanceExtensionProperties")
+	}
 
 	return nil
 }
@@ -104,6 +107,7 @@ func (c *Commands) LoadInstance(instance Instance) error {
 	c.createXlibSurfaceKHR = GetInstanceProcAddr(instance, "vkCreateXlibSurfaceKHR")
 	c.createXcbSurfaceKHR = GetInstanceProcAddr(instance, "vkCreateXcbSurfaceKHR")
 	c.createWaylandSurfaceKHR = GetInstanceProcAddr(instance, "vkCreateWaylandSurfaceKHR")
+	c.createAndroidSurfaceKHR = GetInstanceProcAddr(instance, "vkCreateAndroidSurfaceKHR")
 	c.createMetalSurfaceEXT = GetInstanceProcAddr(instance, "vkCreateMetalSurfaceEXT")
 
 	// Vulkan 1.1+ instance functions
@@ -121,17 +125,6 @@ func (c *Commands) LoadInstance(instance Instance) error {
 	// Verify critical functions loaded
 	if c.destroyInstance == nil || c.enumeratePhysicalDevices == nil || c.createDevice == nil {
 		return fmt.Errorf("failed to load critical instance functions")
-	}
-
-	// Verify WSI (Window System Integration) query functions.
-	// These are required for any surface-based rendering. Platform-specific
-	// surface creation functions (vkCreate*SurfaceKHR) are optional and
-	// checked at call sites via Has* methods, but the query functions are
-	// part of VK_KHR_surface which is always enabled for windowed rendering.
-	if c.getPhysicalDeviceSurfaceCapabilitiesKHR == nil ||
-		c.getPhysicalDeviceSurfaceFormatsKHR == nil ||
-		c.getPhysicalDeviceSurfacePresentModesKHR == nil {
-		return fmt.Errorf("failed to load WSI query functions (VK_KHR_surface)")
 	}
 
 	return nil
@@ -315,6 +308,27 @@ func (c *Commands) HasCreateXlibSurfaceKHR() bool {
 // HasCreateWaylandSurfaceKHR returns true if vkCreateWaylandSurfaceKHR is available.
 func (c *Commands) HasCreateWaylandSurfaceKHR() bool {
 	return c.createWaylandSurfaceKHR != nil
+}
+
+// HasCreateAndroidSurfaceKHR returns true if vkCreateAndroidSurfaceKHR is available.
+func (c *Commands) HasCreateAndroidSurfaceKHR() bool {
+	return c.createAndroidSurfaceKHR != nil
+}
+
+// HasWSIQueries reports whether all VK_KHR_surface query commands are available.
+// A Vulkan instance may remain useful for headless work when this is false.
+func (c *Commands) HasWSIQueries() bool {
+	return c.destroySurfaceKHR != nil &&
+		c.getPhysicalDeviceSurfaceSupportKHR != nil &&
+		c.getPhysicalDeviceSurfaceCapabilitiesKHR != nil &&
+		c.getPhysicalDeviceSurfaceFormatsKHR != nil &&
+		c.getPhysicalDeviceSurfacePresentModesKHR != nil
+}
+
+// HasEnumerateInstanceVersion reports whether the Vulkan 1.1 global version
+// query is available. WGPU requires Vulkan 1.2, so callers reject its absence.
+func (c *Commands) HasEnumerateInstanceVersion() bool {
+	return c.enumerateInstanceVersion != nil
 }
 
 // HasCreateMetalSurfaceEXT returns true if vkCreateMetalSurfaceEXT is available.

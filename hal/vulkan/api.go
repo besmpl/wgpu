@@ -8,6 +8,7 @@ package vulkan
 import (
 	"fmt"
 	"runtime"
+	"strings"
 	"unsafe"
 
 	"github.com/gogpu/gputypes"
@@ -25,6 +26,11 @@ func (Backend) Variant() gputypes.Backend {
 
 // CreateInstance creates a new Vulkan instance.
 func (Backend) CreateInstance(desc *hal.InstanceDescriptor) (hal.Instance, error) {
+	platform, err := newPlatformInstanceState(desc)
+	if err != nil {
+		return nil, err
+	}
+
 	// Initialize Vulkan library
 	if err := vk.Init(); err != nil {
 		return nil, fmt.Errorf("vulkan: failed to initialize: %w", err)
@@ -34,6 +40,15 @@ func (Backend) CreateInstance(desc *hal.InstanceDescriptor) (hal.Instance, error
 	cmds := vk.NewCommands()
 	if err := cmds.LoadGlobal(); err != nil {
 		return nil, fmt.Errorf("vulkan: failed to load global commands: %w", err)
+	}
+
+	apiVersion, err := requireVulkan12(cmds)
+	if err != nil {
+		return nil, err
+	}
+	availableExtensions, err := enumerateInstanceExtensions(cmds)
+	if err != nil {
+		return nil, fmt.Errorf("vulkan: enumerate instance extensions: %w", err)
 	}
 
 	// Prepare application info
@@ -46,28 +61,26 @@ func (Backend) CreateInstance(desc *hal.InstanceDescriptor) (hal.Instance, error
 		ApplicationVersion: vkMakeVersion(1, 0, 0),
 		PEngineName:        uintptr(unsafe.Pointer(&engineName[0])),
 		EngineVersion:      vkMakeVersion(0, 1, 0),
-		ApiVersion:         vkMakeVersion(1, 2, 0), // Vulkan 1.2
+		ApiVersion:         vkMakeVersion(1, 2, 0),
 	}
-
-	// Required extensions
-	extensions := []string{
-		"VK_KHR_surface\x00",
-	}
-
-	// Platform-specific surface extension
-	extensions = append(extensions, platformSurfaceExtension())
 
 	// Optional: validation layers for debug (only if available)
 	var layers []string
 	var validationEnabled bool
 	if desc != nil && desc.Flags&gputypes.InstanceFlagsDebug != 0 {
-		if isLayerAvailable(cmds, "VK_LAYER_KHRONOS_validation") {
+		_, debugUtilsAvailable := availableExtensions["VK_EXT_debug_utils"]
+		if debugUtilsAvailable && isLayerAvailable(cmds, "VK_LAYER_KHRONOS_validation") {
 			layers = append(layers, "VK_LAYER_KHRONOS_validation\x00")
-			extensions = append(extensions, "VK_EXT_debug_utils\x00")
 			validationEnabled = true
 		}
 		// Silently skip if validation layers not installed (Vulkan SDK not present)
 	}
+
+	extensions, surfaceEnabled := selectInstanceExtensions(
+		availableExtensions,
+		platformSurfaceExtension(),
+		validationEnabled,
+	)
 
 	// Convert to C strings
 	extensionPtrs := make([]uintptr, len(extensions))
@@ -110,6 +123,11 @@ func (Backend) CreateInstance(desc *hal.InstanceDescriptor) (hal.Instance, error
 	// Set vkGetDeviceProcAddr for device function loading.
 	// Some drivers (e.g., Intel) don't support loading it with instance=0.
 	vk.SetDeviceProcAddr(instance)
+	if surfaceEnabled && !cmds.HasWSIQueries() {
+		// Keep the instance usable for headless workloads. CreateSurface will
+		// fail closed instead of making instance creation depend on WSI.
+		surfaceEnabled = false
+	}
 
 	// Keep references alive
 	runtime.KeepAlive(appName)
@@ -120,9 +138,12 @@ func (Backend) CreateInstance(desc *hal.InstanceDescriptor) (hal.Instance, error
 	runtime.KeepAlive(layerPtrs)
 
 	inst := &Instance{
-		handle:       instance,
-		cmds:         *cmds,
-		debugEnabled: validationEnabled,
+		handle:         instance,
+		cmds:           *cmds,
+		debugEnabled:   validationEnabled,
+		surfaceEnabled: surfaceEnabled,
+		apiVersion:     apiVersion,
+		platform:       platform,
 	}
 
 	// Create debug messenger when validation layers are active.
@@ -145,6 +166,9 @@ type Instance struct {
 	cmds           vk.Commands
 	debugMessenger vk.DebugUtilsMessengerEXT
 	debugEnabled   bool
+	surfaceEnabled bool
+	apiVersion     uint32
+	platform       platformInstanceState
 }
 
 // EnumerateAdapters returns available Vulkan adapters (physical devices).
@@ -166,6 +190,12 @@ func (i *Instance) EnumerateAdapters(surfaceHint hal.Surface) []hal.ExposedAdapt
 		// Get device properties
 		var props vk.PhysicalDeviceProperties
 		i.cmds.GetPhysicalDeviceProperties(device, &props)
+		if props.ApiVersion < vkMakeVersion(1, 2, 0) {
+			hal.Logger().Debug("vulkan: adapter below Vulkan 1.2 floor",
+				"apiVersion", fmt.Sprintf("%d.%d.%d", vkVersionMajor(props.ApiVersion), vkVersionMinor(props.ApiVersion), vkVersionPatch(props.ApiVersion)),
+			)
+			continue
+		}
 
 		// Get device features
 		var features vk.PhysicalDeviceFeatures
@@ -264,6 +294,7 @@ type Surface struct {
 	instance  *Instance
 	swapchain *Swapchain
 	device    *Device
+	platform  platformSurfaceState
 }
 
 // Configure configures the surface for presentation.
@@ -272,6 +303,9 @@ type Surface struct {
 // This commonly happens when the window is minimized or not yet fully visible.
 // Wait until the window has valid dimensions before calling Configure again.
 func (s *Surface) Configure(device hal.Device, config *hal.SurfaceConfiguration) error {
+	if err := s.validatePlatform(); err != nil {
+		return err
+	}
 	// Validate dimensions first (before any side effects).
 	// This matches wgpu-core behavior which returns ConfigureSurfaceError::ZeroArea.
 	if config.Width == 0 || config.Height == 0 {
@@ -313,6 +347,9 @@ func (s *Surface) Unconfigure(_ hal.Device) {
 // AcquireTexture acquires the next surface texture for rendering.
 // Returns hal.ErrNotReady if no image is available (non-blocking mode).
 func (s *Surface) AcquireTexture(_ hal.Fence) (*hal.AcquiredSurfaceTexture, error) {
+	if err := s.validatePlatform(); err != nil {
+		return nil, err
+	}
 	if s.swapchain == nil {
 		return nil, fmt.Errorf("vulkan: surface not configured")
 	}
@@ -376,6 +413,78 @@ func vkVersionMinor(version uint32) uint32 {
 
 func vkVersionPatch(version uint32) uint32 {
 	return version & 0xFFF
+}
+
+func requireVulkan12(cmds *vk.Commands) (uint32, error) {
+	if !cmds.HasEnumerateInstanceVersion() {
+		return 0, fmt.Errorf("vulkan: loader does not expose Vulkan 1.2")
+	}
+	var version uint32
+	if result := cmds.EnumerateInstanceVersion(&version); result != vk.Success {
+		return 0, fmt.Errorf("vulkan: vkEnumerateInstanceVersion failed: %d", result)
+	}
+	if err := validateVulkanVersion(version); err != nil {
+		return 0, err
+	}
+	return version, nil
+}
+
+func validateVulkanVersion(version uint32) error {
+	if version < vkMakeVersion(1, 2, 0) {
+		return fmt.Errorf("vulkan: Vulkan 1.2 is required, loader reports %d.%d.%d",
+			vkVersionMajor(version), vkVersionMinor(version), vkVersionPatch(version))
+	}
+	return nil
+}
+
+func enumerateInstanceExtensions(cmds *vk.Commands) (map[string]struct{}, error) {
+	var count uint32
+	result := cmds.EnumerateInstanceExtensionProperties(0, &count, nil)
+	if result != vk.Success && result != vk.Incomplete {
+		return nil, fmt.Errorf("count query failed: %d", result)
+	}
+	for attempt := 0; attempt < 3; attempt++ {
+		if count == 0 {
+			return map[string]struct{}{}, nil
+		}
+		properties := make([]vk.ExtensionProperties, count)
+		returned := count
+		result = cmds.EnumerateInstanceExtensionProperties(0, &returned, &properties[0])
+		if result == vk.Incomplete || returned > uint32(len(properties)) {
+			result = cmds.EnumerateInstanceExtensionProperties(0, &count, nil)
+			if result != vk.Success && result != vk.Incomplete {
+				return nil, fmt.Errorf("retry count query failed: %d", result)
+			}
+			continue
+		}
+		if result != vk.Success {
+			return nil, fmt.Errorf("property query failed: %d", result)
+		}
+		available := make(map[string]struct{}, returned)
+		for _, property := range properties[:returned] {
+			available[cStringToGo(property.ExtensionName[:])] = struct{}{}
+		}
+		return available, nil
+	}
+	return nil, fmt.Errorf("extension list remained incomplete")
+}
+
+func selectInstanceExtensions(available map[string]struct{}, platformExtension string, debug bool) (extensions []string, surfaceEnabled bool) {
+	platformExtension = strings.TrimSuffix(platformExtension, "\x00")
+	_, hasSurface := available["VK_KHR_surface"]
+	_, hasPlatform := available[platformExtension]
+	if hasSurface {
+		extensions = append(extensions, "VK_KHR_surface\x00")
+	}
+	if hasSurface && hasPlatform {
+		extensions = append(extensions, platformExtension+"\x00")
+	}
+	if debug {
+		if _, ok := available["VK_EXT_debug_utils"]; ok {
+			extensions = append(extensions, "VK_EXT_debug_utils\x00")
+		}
+	}
+	return extensions, hasSurface && hasPlatform
 }
 
 func cStringToGo(b []byte) string {

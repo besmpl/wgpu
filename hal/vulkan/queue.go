@@ -694,6 +694,9 @@ func (q *Queue) Present(surface hal.Surface, _ hal.SurfaceTexture, damageRects [
 	if !ok {
 		return fmt.Errorf("vulkan: surface is not a Vulkan surface")
 	}
+	if err := vkSurface.validatePlatform(); err != nil {
+		return err
+	}
 
 	if vkSurface.swapchain == nil {
 		return fmt.Errorf("vulkan: surface not configured")

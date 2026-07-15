@@ -51,6 +51,10 @@ type Instance interface {
 	// CreateSurface creates a rendering surface from platform handles.
 	// displayHandle is platform-specific (HDC on Windows, NSWindow* on macOS, etc.).
 	// windowHandle is the window handle (HWND on Windows, NSView* on macOS, etc.).
+	// On Android/arm64, displayHandle is a non-zero monotonically increasing
+	// host window generation and windowHandle is a raw ANativeWindow pointer.
+	// The host keeps its application reference; Vulkan owns only the reference
+	// acquired for a successfully created VkSurfaceKHR.
 	CreateSurface(displayHandle, windowHandle uintptr) (Surface, error)
 
 	// EnumerateAdapters enumerates available physical GPUs.
