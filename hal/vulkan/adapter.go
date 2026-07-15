@@ -313,6 +313,9 @@ func (a *qualifiedAdapter) SurfaceCapabilities(surface hal.Surface) *hal.Surface
 	if !ok || vkSurface != a.surface {
 		return nil
 	}
+	if vkSurface.validatePlatform() != nil {
+		return nil
+	}
 	return cloneSurfaceCapabilities(a.snapshot.public)
 }
 
@@ -329,6 +332,9 @@ func (a *Adapter) QualifySurface(surface hal.Surface) (hal.Adapter, error) {
 	}
 	if vkSurface.instance == nil || vkSurface.instance != a.instance {
 		return nil, fmt.Errorf("vulkan: surface belongs to a different instance")
+	}
+	if err := vkSurface.validatePlatform(); err != nil {
+		return nil, err
 	}
 
 	queueFamilies, err := a.queueFamilies()
