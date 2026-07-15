@@ -306,6 +306,9 @@ func (q *Queue) WriteTexture(dst *ImageCopyTexture, data []byte, layout *ImageDa
 	if q.hal == nil || dst == nil {
 		return fmt.Errorf("wgpu: WriteTexture: queue or destination is nil")
 	}
+	if dst.Texture != nil && !dst.Texture.surfaceTextureValid() {
+		return ErrReleased
+	}
 	if dst.Texture == nil || dst.Texture.hal == nil {
 		return fmt.Errorf("wgpu: WriteTexture: destination texture is invalid")
 	}
@@ -410,7 +413,7 @@ func validateCommandBufferForSubmit(cb *CommandBuffer, index int) error {
 
 	// 3. Check referenced textures (matches Rust queue.rs:1791-1808).
 	for tex := range cb.usedTextures {
-		if tex.released {
+		if tex.released || !tex.surfaceTextureValid() {
 			return fmt.Errorf("wgpu: Submit: command buffer at index %d references released texture: %w",
 				index, ErrSubmitTextureDestroyed)
 		}

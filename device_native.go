@@ -137,6 +137,9 @@ func (d *Device) CreateTextureView(texture *Texture, desc *TextureViewDescriptor
 	if texture == nil {
 		return nil, fmt.Errorf("wgpu: texture is nil")
 	}
+	if !texture.surfaceTextureValid() {
+		return nil, ErrReleased
+	}
 
 	halDevice := d.halDevice()
 	if halDevice == nil {
@@ -160,7 +163,7 @@ func (d *Device) CreateTextureView(texture *Texture, desc *TextureViewDescriptor
 		return nil, fmt.Errorf("wgpu: failed to create texture view: %w", err)
 	}
 
-	return &TextureView{hal: halView, device: d, texture: texture}, nil
+	return &TextureView{hal: halView, device: d, texture: texture, surfaceToken: texture.surfaceToken}, nil
 }
 
 // CreateSampler creates a texture sampler.
@@ -360,6 +363,9 @@ func (d *Device) CreateBindGroup(desc *BindGroupDescriptor) (*BindGroup, error) 
 
 	halEntries := make([]gputypes.BindGroupEntry, len(desc.Entries))
 	for i, entry := range desc.Entries {
+		if entry.TextureView != nil && !entry.TextureView.surfaceTextureValid() {
+			return nil, ErrReleased
+		}
 		halEntries[i] = entry.toHAL()
 	}
 

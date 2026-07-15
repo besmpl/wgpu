@@ -5,6 +5,7 @@ package wgpu
 import (
 	"fmt"
 	"image"
+	"sync/atomic"
 
 	"github.com/gogpu/gputypes"
 	"github.com/gogpu/wgpu/core"
@@ -16,10 +17,11 @@ import (
 // Surface delegates lifecycle management to core.Surface, which enforces
 // the state machine: Unconfigured -> Configured -> Acquired -> Configured.
 type Surface struct {
-	core     *core.Surface
-	instance *Instance
-	device   *Device
-	released bool
+	core          *core.Surface
+	instance      *Instance
+	device        *Device
+	released      bool
+	activeTexture *surfaceTextureToken
 
 	// displayHandle and windowHandle are stored for deferred HAL surface
 	// re-creation when the device's backend differs from the initially
@@ -90,6 +92,16 @@ func (s *Surface) Configure(device *Device, config *SurfaceConfiguration) error 
 	if device == nil {
 		return fmt.Errorf("wgpu: device is nil")
 	}
+	// Reject reconfiguration while an image is acquired before touching the
+	// backend surface. ensureHALSurface may destroy and recreate the raw surface;
+	// doing that first would leave the active SurfaceTexture pointing at a
+	// destroyed image when core.Configure rejects the state transition.
+	if s.core == nil {
+		return ErrReleased
+	}
+	if s.core.State() == core.SurfaceStateAcquired {
+		return core.ErrSurfaceConfigureWhileAcquired
+	}
 
 	halConfig := &hal.SurfaceConfiguration{
 		Width:       config.Width,
@@ -109,7 +121,11 @@ func (s *Surface) Configure(device *Device, config *SurfaceConfiguration) error 
 	}
 
 	s.device = device
-	return s.core.Configure(device.core, halConfig)
+	if err := s.core.Configure(device.core, halConfig); err != nil {
+		return err
+	}
+	s.invalidateTexture()
+	return nil
 }
 
 // Unconfigure removes the surface configuration.
@@ -118,6 +134,7 @@ func (s *Surface) Unconfigure() {
 		return
 	}
 	s.core.Unconfigure()
+	s.invalidateTexture()
 }
 
 // GetCurrentTexture acquires the next texture for rendering.
@@ -138,10 +155,13 @@ func (s *Surface) GetCurrentTexture() (*SurfaceTexture, bool, error) {
 		return nil, false, err
 	}
 
+	token := newSurfaceTextureToken()
+	s.activeTexture = token
 	return &SurfaceTexture{
 		hal:     acquired.Texture,
 		surface: s,
 		device:  s.device,
+		token:   token,
 	}, acquired.Suboptimal, nil
 }
 
@@ -173,8 +193,13 @@ func (s *Surface) PresentWithDamage(texture *SurfaceTexture, damageRects []image
 	if texture == nil {
 		return fmt.Errorf("wgpu: surface texture is nil")
 	}
+	if texture.surface != s || !texture.isUsable() {
+		return ErrReleased
+	}
 
-	return s.core.PresentWithDamage(s.device.queue.hal, damageRects)
+	err := s.core.PresentWithDamage(s.device.queue.hal, damageRects)
+	s.invalidateTexture()
+	return err
 }
 
 // SetPrepareFrame registers a platform hook called before each GetCurrentTexture.
@@ -230,7 +255,15 @@ func (s *Surface) PresentPixels(data []byte, width, height uint32, damageRects [
 	if s.device == nil {
 		return fmt.Errorf("wgpu: surface not configured")
 	}
-	return s.core.PresentPixels(data, width, height, damageRects)
+	err := s.core.PresentPixels(data, width, height, damageRects)
+	// A supported backend discards any acquired texture before writing pixels.
+	// Invalidate whenever that state transition happened, even if the pixel
+	// presenter itself reports an error; unsupported backends leave the acquired
+	// state untouched and therefore keep the token usable for a normal Present.
+	if err == nil || s.core.State() != core.SurfaceStateAcquired {
+		s.invalidateTexture()
+	}
+	return err
 }
 
 // WritePixels copies RGBA pixel data directly into the surface framebuffer,
@@ -285,6 +318,7 @@ func (s *Surface) DiscardTexture() {
 		return
 	}
 	s.core.DiscardTexture()
+	s.invalidateTexture()
 }
 
 // ensureHALSurface creates or re-creates the HAL surface for the given backend.
@@ -318,12 +352,46 @@ func (s *Surface) HAL() hal.Surface {
 	return s.core.RawSurface()
 }
 
+// surfaceTextureToken is shared by an acquired SurfaceTexture and every
+// public Texture/TextureView wrapper derived from it. The token is invalidated
+// when the acquisition is presented, discarded, reconfigured, or torn down.
+// This keeps retained wrappers from passing a destroyed swapchain image to a
+// HAL device after the surface has moved to its next lifecycle state.
+type surfaceTextureToken struct {
+	valid atomic.Bool
+}
+
+func newSurfaceTextureToken() *surfaceTextureToken {
+	token := &surfaceTextureToken{}
+	token.valid.Store(true)
+	return token
+}
+
+func (t *surfaceTextureToken) invalidate() {
+	if t != nil {
+		t.valid.Store(false)
+	}
+}
+
+func (t *surfaceTextureToken) isValid() bool {
+	return t != nil && t.valid.Load()
+}
+
+func (s *Surface) invalidateTexture() {
+	if s == nil || s.activeTexture == nil {
+		return
+	}
+	s.activeTexture.invalidate()
+	s.activeTexture = nil
+}
+
 // Release releases the surface.
 func (s *Surface) Release() {
 	if s.released {
 		return
 	}
 	s.released = true
+	s.invalidateTexture()
 	if s.core != nil {
 		if raw := s.core.RawSurface(); raw != nil {
 			raw.Destroy()
@@ -341,6 +409,16 @@ type SurfaceTexture struct {
 	hal     hal.SurfaceTexture
 	surface *Surface
 	device  *Device
+	token   *surfaceTextureToken
+}
+
+func (st *SurfaceTexture) isUsable() bool {
+	if st == nil || st.hal == nil || !st.token.isValid() || st.surface == nil ||
+		st.surface.released || st.surface.core == nil || st.surface.activeTexture != st.token ||
+		st.device == nil || st.device.released.Load() {
+		return false
+	}
+	return st.surface.core.State() == core.SurfaceStateAcquired
 }
 
 // AsTexture returns a lightweight Texture wrapper around this surface texture,
@@ -350,14 +428,21 @@ type SurfaceTexture struct {
 // The returned Texture shares the underlying HAL resource — do not Release() it
 // independently. Its lifetime is tied to this SurfaceTexture.
 func (st *SurfaceTexture) AsTexture() *Texture {
+	if !st.isUsable() {
+		return nil
+	}
 	return &Texture{
-		hal:    st.hal,
-		device: st.device,
+		hal:          st.hal,
+		device:       st.device,
+		surfaceToken: st.token,
 	}
 }
 
 // CreateView creates a texture view of this surface texture.
 func (st *SurfaceTexture) CreateView(desc *TextureViewDescriptor) (*TextureView, error) {
+	if !st.isUsable() {
+		return nil, ErrReleased
+	}
 	halDevice := st.device.halDevice()
 	if halDevice == nil {
 		return nil, ErrReleased
@@ -382,5 +467,6 @@ func (st *SurfaceTexture) CreateView(desc *TextureViewDescriptor) (*TextureView,
 		return nil, fmt.Errorf("wgpu: failed to create surface texture view: %w", err)
 	}
 
-	return &TextureView{hal: halView, device: st.device, texture: st.AsTexture()}, nil
+	texture := &Texture{hal: st.hal, device: st.device, surfaceToken: st.token}
+	return &TextureView{hal: halView, device: st.device, texture: texture, surfaceToken: st.token}, nil
 }

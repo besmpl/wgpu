@@ -8,10 +8,18 @@ import (
 
 // Texture represents a GPU texture.
 type Texture struct {
-	hal      hal.Texture
-	device   *Device
-	format   TextureFormat
-	released bool
+	hal          hal.Texture
+	device       *Device
+	format       TextureFormat
+	released     bool
+	surfaceToken *surfaceTextureToken
+}
+
+// surfaceTextureValid reports whether a texture derived from a surface
+// acquisition may still be passed to native operations. Ordinary textures do
+// not carry a token and remain governed by their released flag.
+func (t *Texture) surfaceTextureValid() bool {
+	return t != nil && !t.released && (t.surfaceToken == nil || t.surfaceToken.isValid())
 }
 
 // Format returns the texture format.
@@ -22,6 +30,12 @@ func (t *Texture) Format() TextureFormat { return t.format }
 // that may reference it. This prevents use-after-free on DX12/Vulkan.
 func (t *Texture) Release() {
 	if t.released {
+		return
+	}
+	// Surface textures are borrowed swapchain images. The wrapper never owns
+	// their HAL lifetime, even while the acquisition is still active.
+	if t.surfaceToken != nil {
+		t.released = true
 		return
 	}
 	t.released = true
@@ -46,15 +60,26 @@ func (t *Texture) Release() {
 
 // TextureView represents a view into a texture.
 type TextureView struct {
-	hal      hal.TextureView
-	device   *Device
-	texture  *Texture
-	released bool
+	hal          hal.TextureView
+	device       *Device
+	texture      *Texture
+	released     bool
+	surfaceToken *surfaceTextureToken
+}
+
+func (v *TextureView) surfaceTextureValid() bool {
+	return v != nil && !v.released && (v.surfaceToken == nil || v.surfaceToken.isValid()) &&
+		(v.texture == nil || v.texture.surfaceTextureValid())
 }
 
 // Texture returns the parent Texture that this view was created from.
 // Returns nil if the view has been released.
-func (v *TextureView) Texture() *Texture { return v.texture }
+func (v *TextureView) Texture() *Texture {
+	if v == nil || v.released || !v.surfaceTextureValid() {
+		return nil
+	}
+	return v.texture
+}
 
 // Release marks the texture view for destruction. The underlying HAL TextureView
 // (and its descriptor heap slots) is not freed immediately — it is deferred via
@@ -63,6 +88,10 @@ func (v *TextureView) Texture() *Texture { return v.texture }
 // (BUG-DX12-007).
 func (v *TextureView) Release() {
 	if v.released {
+		return
+	}
+	if v.surfaceToken != nil && !v.surfaceToken.isValid() {
+		v.released = true
 		return
 	}
 	v.released = true
