@@ -123,11 +123,7 @@ func (c *Commands) LoadInstance(instance Instance) error {
 	c.createDebugUtilsMessengerEXT = GetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT")
 	c.destroyDebugUtilsMessengerEXT = GetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT")
 
-	if err := c.requireCoreInstanceCommands(); err != nil {
-		return err
-	}
-
-	return nil
+	return c.requireCoreInstanceCommands()
 }
 
 func (c *Commands) requireCoreInstanceCommands() error {
@@ -304,11 +300,7 @@ func (c *Commands) LoadDevice(device Device) error {
 	if c.destroyDevice == nil || c.getDeviceQueue == nil || c.queueSubmit == nil {
 		return fmt.Errorf("failed to load critical device functions")
 	}
-	if err := c.requireSwapchainCommands(); err != nil {
-		return err
-	}
-
-	return nil
+	return c.requireSwapchainCommands()
 }
 
 // HasSwapchainCommands reports whether every device-level VK_KHR_swapchain

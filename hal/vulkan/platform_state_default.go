@@ -16,4 +16,7 @@ func newPlatformInstanceState(_ *hal.InstanceDescriptor) (platformInstanceState,
 	return platformInstanceState{swapchain: defaultSwapchainPlatformPolicy()}, nil
 }
 
-func (s *Surface) validatePlatform() error { return nil }
+func (s *Surface) validatePlatform() error {
+	_ = s.platform
+	return nil
+}

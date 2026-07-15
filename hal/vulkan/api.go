@@ -681,34 +681,38 @@ func (s *Surface) releaseConfiguredDevice(device *Device, drained bool) bool {
 		return false
 	}
 	swapchain := s.swapchain
-	childrenReleased := swapchain == nil
 	s.clearActiveSwapchain(swapchain)
-	if swapchain != nil {
-		if drained {
-			if err := swapchain.destroyResourcesAfterIdle(); err != nil {
-				hal.Logger().Error("vulkan: failed to release drained swapchain resources", "error", err)
-				swapchain.abandonDeviceResources()
-			} else {
-				if swapchain.handle != 0 {
-					vkDestroySwapchainKHR(device, swapchain.handle, nil)
-					swapchain.handle = 0
-				}
-				swapchain.destroyed = true
-				swapchain.broken = true
-				swapchain.device = nil
-				swapchain.surface = nil
-				childrenReleased = true
-			}
-		} else {
-			swapchain.abandonDeviceResources()
-		}
-	}
+	childrenReleased := releaseSwapchainFromDevice(swapchain, device, drained)
 	s.swapchain = nil
 	s.device = nil
 	if s.destroyRequested && childrenReleased {
 		s.destroySurfaceHandleLocked()
 	}
 	return s.destroyRequested && !childrenReleased
+}
+
+func releaseSwapchainFromDevice(swapchain *Swapchain, device *Device, drained bool) bool {
+	if swapchain == nil {
+		return true
+	}
+	if !drained {
+		swapchain.abandonDeviceResources()
+		return false
+	}
+	if err := swapchain.destroyResourcesAfterIdle(); err != nil {
+		hal.Logger().Error("vulkan: failed to release drained swapchain resources", "error", err)
+		swapchain.abandonDeviceResources()
+		return false
+	}
+	if swapchain.handle != 0 {
+		vkDestroySwapchainKHR(device, swapchain.handle, nil)
+		swapchain.handle = 0
+	}
+	swapchain.destroyed = true
+	swapchain.broken = true
+	swapchain.device = nil
+	swapchain.surface = nil
+	return true
 }
 
 // Helper functions
@@ -781,8 +785,8 @@ func enumerateInstanceExtensionsWith(query func(count *uint32, properties *vk.Ex
 			return nil, fmt.Errorf("property query: %w", mapVulkanResult("vkEnumerateInstanceExtensionProperties", result))
 		}
 		available := make(map[string]struct{}, returned)
-		for _, property := range properties[:returned] {
-			available[cStringToGo(property.ExtensionName[:])] = struct{}{}
+		for index := range properties[:returned] {
+			available[cStringToGo(properties[index].ExtensionName[:])] = struct{}{}
 		}
 		return available, nil
 	}
