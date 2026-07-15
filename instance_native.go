@@ -84,6 +84,12 @@ func (i *Instance) RequestAdapter(opts *RequestAdapterOptions) (*Adapter, error)
 	if err != nil {
 		return nil, err
 	}
+	keepAdapter := false
+	defer func() {
+		if !keepAdapter {
+			i.core.ReleaseSurfaceAdapter(adapterID)
+		}
+	}()
 
 	info, err := core.GetAdapterInfo(adapterID)
 	if err != nil {
@@ -110,14 +116,16 @@ func (i *Instance) RequestAdapter(opts *RequestAdapterOptions) (*Adapter, error)
 		return nil, fmt.Errorf("wgpu: failed to get adapter: %w", err)
 	}
 
-	return &Adapter{
+	adapter := &Adapter{
 		id:       adapterID,
 		core:     &coreAdapter,
 		info:     info,
 		features: features,
 		limits:   limits,
 		instance: i,
-	}, nil
+	}
+	keepAdapter = true
+	return adapter, nil
 }
 
 func (i *Instance) isReleased() bool {
