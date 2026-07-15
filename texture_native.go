@@ -19,7 +19,13 @@ type Texture struct {
 // acquisition may still be passed to native operations. Ordinary textures do
 // not carry a token and remain governed by their released flag.
 func (t *Texture) surfaceTextureValid() bool {
-	return t != nil && !t.released && (t.surfaceToken == nil || t.surfaceToken.isValid())
+	if t == nil || t.released {
+		return false
+	}
+	if t.surfaceToken == nil {
+		return true
+	}
+	return t.surfaceToken.isValid() && t.device != nil && !t.device.released.Load()
 }
 
 // Format returns the texture format.
@@ -68,8 +74,13 @@ type TextureView struct {
 }
 
 func (v *TextureView) surfaceTextureValid() bool {
-	return v != nil && !v.released && (v.surfaceToken == nil || v.surfaceToken.isValid()) &&
-		(v.texture == nil || v.texture.surfaceTextureValid())
+	if v == nil || v.released {
+		return false
+	}
+	if v.surfaceToken != nil && (!v.surfaceToken.isValid() || v.device == nil || v.device.released.Load()) {
+		return false
+	}
+	return v.texture == nil || v.texture.surfaceTextureValid()
 }
 
 // Texture returns the parent Texture that this view was created from.
@@ -90,7 +101,7 @@ func (v *TextureView) Release() {
 	if v.released {
 		return
 	}
-	if v.surfaceToken != nil && !v.surfaceToken.isValid() {
+	if v.surfaceToken != nil && (!v.surfaceToken.isValid() || v.device == nil || v.device.released.Load()) {
 		v.released = true
 		return
 	}

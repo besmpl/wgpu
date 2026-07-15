@@ -167,3 +167,29 @@ func TestSurfacePresentRejectsTextureFromAnotherAcquisition(t *testing.T) {
 	surface.DiscardTexture()
 	surface.Release()
 }
+
+func TestSurfaceTextureDerivedWrappersInvalidateAfterDeviceRelease(t *testing.T) {
+	surface, surfaceTexture, device, rawDevice := newAcquiredSurfaceForLifetimeTest(t)
+
+	texture := surfaceTexture.AsTexture()
+	view, err := surfaceTexture.CreateView(nil)
+	if err != nil {
+		t.Fatalf("CreateView: %v", err)
+	}
+
+	device.Release()
+	if texture.surfaceTextureValid() {
+		t.Fatal("surface texture wrapper remained usable after Device.Release")
+	}
+	if view.surfaceTextureValid() {
+		t.Fatal("surface texture view remained usable after Device.Release")
+	}
+	if surfaceTexture.AsTexture() != nil {
+		t.Fatal("AsTexture returned a wrapper after Device.Release")
+	}
+	view.Release()
+	if rawDevice.destroyedViews != 0 {
+		t.Fatalf("post-device-release view destruction count = %d, want 0", rawDevice.destroyedViews)
+	}
+	surface.Release()
+}
