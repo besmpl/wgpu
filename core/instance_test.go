@@ -52,11 +52,9 @@ func TestNewInstance(t *testing.T) {
 				t.Errorf("Backends() = %v, want %v", got, tt.want)
 			}
 
-			// Verify mock adapter was created
-			adapters := instance.EnumerateAdapters()
-			if len(adapters) == 0 {
-				t.Error("Expected at least one mock adapter")
-			}
+			// Adapter discovery is provider-dependent. A missing provider must not
+			// fabricate a mock adapter; deterministic mock coverage uses the
+			// explicit NewInstanceWithMock constructor.
 		})
 	}
 }
@@ -102,10 +100,37 @@ func TestInstanceFlags(t *testing.T) {
 	}
 }
 
+func TestNewInstanceDoesNotFabricateAdapterWithoutProvider(t *testing.T) {
+	GetGlobal().Clear()
+
+	instance := NewInstance(&gputypes.InstanceDescriptor{})
+	if adapters := instance.EnumerateAdapters(); len(adapters) != 0 {
+		t.Fatalf("NewInstance fabricated %d adapter(s) without an enabled provider", len(adapters))
+	}
+	if instance.IsMock() {
+		t.Fatal("NewInstance unexpectedly enabled mock mode")
+	}
+	if _, err := instance.RequestAdapter(nil); err == nil {
+		t.Fatal("RequestAdapter succeeded without a provider")
+	}
+}
+
+func TestNewInstanceWithMockIsExplicit(t *testing.T) {
+	GetGlobal().Clear()
+
+	instance := NewInstanceWithMock(nil)
+	if !instance.IsMock() {
+		t.Fatal("NewInstanceWithMock did not enable mock mode")
+	}
+	if adapters := instance.EnumerateAdapters(); len(adapters) != 1 {
+		t.Fatalf("NewInstanceWithMock returned %d adapters, want 1", len(adapters))
+	}
+}
+
 func TestEnumerateAdapters(t *testing.T) {
 	GetGlobal().Clear()
 
-	instance := NewInstance(nil)
+	instance := NewInstanceWithMock(nil)
 
 	adapters := instance.EnumerateAdapters()
 	if len(adapters) == 0 {
@@ -173,7 +198,7 @@ func TestRequestAdapter(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			GetGlobal().Clear()
 
-			instance := NewInstance(nil)
+			instance := NewInstanceWithMock(nil)
 			adapterID, err := instance.RequestAdapter(tt.options)
 
 			if tt.wantErr {
@@ -205,7 +230,7 @@ func TestRequestAdapter(t *testing.T) {
 func TestRequestAdapterNoAdapters(t *testing.T) {
 	GetGlobal().Clear()
 
-	// Create instance but remove mock adapter
+	// An instance with no registered adapters must fail explicitly.
 	instance := &Instance{
 		backends: gputypes.BackendsPrimary,
 		flags:    0,
@@ -277,7 +302,7 @@ func TestMatchesPowerPreference(t *testing.T) {
 func TestInstanceConcurrentAccess(t *testing.T) {
 	GetGlobal().Clear()
 
-	instance := NewInstance(nil)
+	instance := NewInstanceWithMock(nil)
 
 	// Test concurrent reads
 	done := make(chan bool, 10)
