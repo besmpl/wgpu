@@ -35,6 +35,13 @@ func isWayland() bool {
 //   - Wayland: display = wl_display*, window = wl_surface* (from libwayland-client)
 //   - X11: display = Display* (from libX11), window = X11 Window ID
 func (i *Instance) CreateSurface(display, window uintptr) (hal.Surface, error) {
+	if err := i.beginResourceCreation(); err != nil {
+		return nil, err
+	}
+	defer i.endResourceCreation()
+	if !i.surfaceEnabled || !i.cmds.HasWSIQueries() {
+		return nil, fmt.Errorf("vulkan: Linux surface WSI is unavailable")
+	}
 	// Try Wayland first if the extension is available
 	if i.cmds.HasCreateWaylandSurfaceKHR() && isWayland() {
 		return i.createWaylandSurface(display, window)
@@ -68,10 +75,10 @@ func (i *Instance) createXlibSurface(display, window uintptr) (hal.Surface, erro
 		return nil, fmt.Errorf("vulkan: vkCreateXlibSurfaceKHR returned success but surface is null")
 	}
 
-	return &Surface{
+	return i.adoptSurface(&Surface{
 		handle:   surface,
 		instance: i,
-	}, nil
+	})
 }
 
 // createWaylandSurface creates a Wayland surface.
@@ -94,8 +101,8 @@ func (i *Instance) createWaylandSurface(display, window uintptr) (hal.Surface, e
 		return nil, fmt.Errorf("vulkan: vkCreateWaylandSurfaceKHR returned success but surface is null")
 	}
 
-	return &Surface{
+	return i.adoptSurface(&Surface{
 		handle:   surface,
 		instance: i,
-	}, nil
+	})
 }

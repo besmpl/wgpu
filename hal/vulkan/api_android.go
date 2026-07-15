@@ -7,7 +7,6 @@ package vulkan
 
 import (
 	"fmt"
-	"unsafe"
 
 	"github.com/gogpu/wgpu/hal"
 	"github.com/gogpu/wgpu/hal/vulkan/vk"
@@ -26,25 +25,24 @@ func platformSurfaceExtension() string {
 // creation and releases it from vkDestroySurfaceKHR; WGPU must not call
 // ANativeWindow_acquire or ANativeWindow_release itself.
 func (i *Instance) CreateSurface(displayHandle, windowHandle uintptr) (hal.Surface, error) {
-	if displayHandle == 0 {
-		return nil, fmt.Errorf("vulkan: Android window generation must be non-zero")
+	generation, err := validateAndroidSurfaceRequest(displayHandle, windowHandle)
+	if err != nil {
+		return nil, err
 	}
-	if windowHandle == 0 {
-		return nil, fmt.Errorf("vulkan: Android ANativeWindow must be non-null")
+	if err := i.beginResourceCreation(); err != nil {
+		return nil, err
 	}
-	if !i.surfaceEnabled || !i.cmds.HasWSIQueries() || !i.cmds.HasCreateAndroidSurfaceKHR() {
-		return nil, fmt.Errorf("vulkan: Android surface WSI is unavailable")
+	defer i.endResourceCreation()
+	if err := validateAndroidSurfaceSupport(i.surfaceEnabled, i.cmds.HasWSIQueries(), i.cmds.HasCreateAndroidSurfaceKHR()); err != nil {
+		return nil, err
 	}
-	if !i.platform.canCreateSurface(uint64(displayHandle)) {
+	if !i.platform.canCreateSurface(generation) {
 		return nil, hal.ErrSurfaceLost
 	}
-
 	createInfo := vk.AndroidSurfaceCreateInfoKHR{
 		SType: vk.StructureTypeAndroidSurfaceCreateInfoKhr,
 	}
-	// Window is generated as *vk.ANativeWindow, but contains a raw C pointer.
-	// Store the uintptr value in-place without converting it into a Go pointer.
-	*(*uintptr)(unsafe.Pointer(&createInfo.Window)) = windowHandle
+	setAndroidSurfaceNativeWindow(&createInfo, windowHandle)
 
 	var handle vk.SurfaceKHR
 	result := i.cmds.CreateAndroidSurfaceKHR(i.handle, &createInfo, nil, &handle)
@@ -55,23 +53,13 @@ func (i *Instance) CreateSurface(displayHandle, windowHandle uintptr) (hal.Surfa
 		return nil, fmt.Errorf("vulkan: vkCreateAndroidSurfaceKHR returned success with a null surface")
 	}
 
-	generation := uint64(displayHandle)
 	if !i.platform.commitSurface(generation) {
 		i.cmds.DestroySurfaceKHR(i.handle, handle, nil)
 		return nil, hal.ErrSurfaceLost
 	}
-	return &Surface{
+	return i.adoptSurface(&Surface{
 		handle:   handle,
 		instance: i,
 		platform: platformSurfaceState{generation: generation},
-	}, nil
-}
-
-func mapAndroidSurfaceCreateError(result vk.Result) error {
-	switch result {
-	case vk.ErrorSurfaceLostKhr, vk.ErrorNativeWindowInUseKhr:
-		return hal.ErrSurfaceLost
-	default:
-		return fmt.Errorf("vulkan: vkCreateAndroidSurfaceKHR failed: %d", result)
-	}
+	})
 }

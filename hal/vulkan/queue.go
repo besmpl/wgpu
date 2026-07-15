@@ -773,12 +773,20 @@ func (q *Queue) waitForGPU() {
 // VkPresentInfoKHR.PNext as a compositor hint. When empty or the extension
 // is unavailable, the present path is identical to a full-surface present.
 func (q *Queue) Present(surface hal.Surface, _ hal.SurfaceTexture, damageRects []image.Rectangle) error {
+	vkSurface, ok := surface.(*Surface)
+	if !ok || vkSurface == nil {
+		return fmt.Errorf("vulkan: surface is not a Vulkan surface")
+	}
+	// Surface lifecycle always nests before queue state. Configure, acquire,
+	// unconfigure, present, and teardown therefore cannot publish or consume a
+	// half-installed swapchain, and device teardown cannot invert these locks.
+	vkSurface.mu.Lock()
+	defer vkSurface.mu.Unlock()
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	vkSurface, ok := surface.(*Surface)
-	if !ok {
-		return fmt.Errorf("vulkan: surface is not a Vulkan surface")
+	if vkSurface.destroyRequested || vkSurface.handle == 0 {
+		return hal.ErrSurfaceLost
 	}
 	if err := vkSurface.validatePlatform(); err != nil {
 		return err

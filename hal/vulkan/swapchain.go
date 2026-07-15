@@ -127,6 +127,13 @@ func (snapshot swapchainSurfaceSnapshot) formatFor(requested gputypes.TextureFor
 	if requestedVk == vk.FormatUndefined {
 		return vk.SurfaceFormatKHR{}, fmt.Errorf("vulkan: unsupported surface format %v", requested)
 	}
+	preferredColorSpace := vk.ColorSpaceSrgbNonlinearKhr
+	if requested == gputypes.TextureFormatRGBA16Float {
+		// Rust wgpu v29 pairs the scRGB surface format with its linear extended
+		// sRGB color space. Preserve the exact format/color-space pair reported
+		// by the driver; fall back only when that preferred pair is unavailable.
+		preferredColorSpace = vk.ColorSpaceExtendedSrgbLinearExt
+	}
 
 	var fallback *vk.SurfaceFormatKHR
 	for i := range snapshot.formats {
@@ -134,7 +141,7 @@ func (snapshot swapchainSurfaceSnapshot) formatFor(requested gputypes.TextureFor
 		if format.Format != requestedVk {
 			continue
 		}
-		if format.ColorSpace == vk.ColorSpaceSrgbNonlinearKhr {
+		if format.ColorSpace == preferredColorSpace {
 			return format, nil
 		}
 		if fallback == nil {
@@ -259,12 +266,6 @@ func validateSurfaceSnapshot(snapshot swapchainSurfaceSnapshot, config *hal.Surf
 	if err != nil {
 		return vk.SurfaceFormatKHR{}, 0, 0, 0, err
 	}
-	if snapshot.capabilities.CurrentTransform == 0 {
-		return vk.SurfaceFormatKHR{}, 0, 0, 0, fmt.Errorf("vulkan: surface returned no current transform")
-	}
-	if vk.Flags(snapshot.capabilities.SupportedTransforms)&vk.Flags(snapshot.capabilities.CurrentTransform) == 0 {
-		return vk.SurfaceFormatKHR{}, 0, 0, 0, fmt.Errorf("vulkan: surface current transform is not supported")
-	}
 	return format, presentMode, alphaMode, usage, nil
 }
 
@@ -291,14 +292,43 @@ func querySwapchainSurfaceSnapshot(instance *Instance, device vk.PhysicalDevice,
 }
 
 func surfaceQueryError(operation string, result vk.Result) error {
-	switch result {
-	case vk.ErrorSurfaceLostKhr:
-		return fmt.Errorf("vulkan: %s failed: %w", operation, hal.ErrSurfaceLost)
-	case vk.ErrorOutOfDateKhr:
-		return fmt.Errorf("vulkan: %s failed: %w", operation, hal.ErrSurfaceOutdated)
-	default:
-		return fmt.Errorf("vulkan: %s failed: %d", operation, result)
+	return mapVulkanResult(operation, result)
+}
+
+const undefinedSurfaceExtent = ^uint32(0)
+
+// selectSwapchainExtent follows Vulkan's two extent modes exactly. A defined
+// CurrentExtent is compositor-owned and must be used verbatim (common on
+// Android); UINT32_MAX means the application selects an extent within the
+// advertised range.
+func selectSwapchainExtent(capabilities vk.SurfaceCapabilitiesKHR, requestedWidth, requestedHeight uint32) (vk.Extent2D, error) {
+	if capabilities.MinImageExtent.Width > capabilities.MaxImageExtent.Width ||
+		capabilities.MinImageExtent.Height > capabilities.MaxImageExtent.Height {
+		return vk.Extent2D{}, fmt.Errorf("vulkan: surface returned invalid image extent range")
 	}
+	widthDefined := capabilities.CurrentExtent.Width != undefinedSurfaceExtent
+	heightDefined := capabilities.CurrentExtent.Height != undefinedSurfaceExtent
+	if widthDefined != heightDefined {
+		return vk.Extent2D{}, fmt.Errorf("vulkan: surface returned partially defined current extent")
+	}
+
+	var extent vk.Extent2D
+	if widthDefined {
+		extent = capabilities.CurrentExtent
+		if extent.Width < capabilities.MinImageExtent.Width || extent.Width > capabilities.MaxImageExtent.Width ||
+			extent.Height < capabilities.MinImageExtent.Height || extent.Height > capabilities.MaxImageExtent.Height {
+			return vk.Extent2D{}, fmt.Errorf("vulkan: surface current extent is outside its advertised range")
+		}
+	} else {
+		extent = vk.Extent2D{
+			Width:  clampUint32(requestedWidth, capabilities.MinImageExtent.Width, capabilities.MaxImageExtent.Width),
+			Height: clampUint32(requestedHeight, capabilities.MinImageExtent.Height, capabilities.MaxImageExtent.Height),
+		}
+	}
+	if extent.Width == 0 || extent.Height == 0 {
+		return vk.Extent2D{}, hal.ErrZeroArea
+	}
+	return extent, nil
 }
 
 func querySwapchainFormats(instance *Instance, device vk.PhysicalDevice, surface vk.SurfaceKHR) ([]vk.SurfaceFormatKHR, error) {
@@ -427,6 +457,10 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 		return err
 	}
 	capabilities := snapshot.capabilities
+	preTransform, err := s.instance.platform.swapchain.preTransform(capabilities)
+	if err != nil {
+		return err
+	}
 
 	// Determine image count
 	if capabilities.MinImageCount == 0 {
@@ -434,10 +468,6 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 	}
 	if capabilities.MaxImageArrayLayers == 0 {
 		return fmt.Errorf("vulkan: surface does not support one image array layer")
-	}
-	if capabilities.CurrentExtent.Width != 0xFFFFFFFF &&
-		(capabilities.MinImageExtent.Width > capabilities.MaxImageExtent.Width || capabilities.MinImageExtent.Height > capabilities.MaxImageExtent.Height) {
-		return fmt.Errorf("vulkan: surface returned invalid image extent range")
 	}
 	imageCount := capabilities.MinImageCount
 	if imageCount < ^uint32(0) {
@@ -450,12 +480,9 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 		return fmt.Errorf("vulkan: surface returned invalid image count range")
 	}
 
-	// Use config dimensions as primary source (matching Rust wgpu-hal behavior).
-	// CurrentExtent from the driver is used only for clamping to the valid range.
-	// Ref: wgpu-hal/src/vulkan/swapchain/native.rs:189-197
-	extent := vk.Extent2D{
-		Width:  config.Width,
-		Height: config.Height,
+	extent, err := selectSwapchainExtent(capabilities, config.Width, config.Height)
+	if err != nil {
+		return err
 	}
 
 	// Log surface capabilities for HiDPI diagnostics (BUG-VK-HIDPI-001).
@@ -467,30 +494,18 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 		"maxExtent", [2]uint32{capabilities.MaxImageExtent.Width, capabilities.MaxImageExtent.Height},
 	)
 
-	// Clamp to driver-reported range when CurrentExtent is defined.
-	// CurrentExtent of 0xFFFFFFFF means the surface size is determined by the swapchain.
-	if capabilities.CurrentExtent.Width != 0xFFFFFFFF {
-		extent.Width = clampUint32(extent.Width, capabilities.MinImageExtent.Width, capabilities.MaxImageExtent.Width)
-		extent.Height = clampUint32(extent.Height, capabilities.MinImageExtent.Height, capabilities.MaxImageExtent.Height)
-	}
-
-	// Warn if the driver clamped the extent to different dimensions than
+	// Warn if the surface selected different dimensions than
 	// requested. This commonly happens on X11 HiDPI where the compositor
 	// reports physical pixels that differ from the application's logical
 	// pixels. Downstream code (e.g., MSAA textures) should use
 	// Surface.ActualExtent() to match the real swapchain size.
 	if extent.Width != config.Width || extent.Height != config.Height {
-		hal.Logger().Warn("vulkan: swapchain extent clamped by driver",
+		hal.Logger().Warn("vulkan: swapchain extent selected by surface",
 			"requestedWidth", config.Width,
 			"requestedHeight", config.Height,
 			"actualWidth", extent.Width,
 			"actualHeight", extent.Height,
 		)
-	}
-
-	// Zero extent means the window is minimized -- skip swapchain creation.
-	if extent.Width == 0 || extent.Height == 0 {
-		return hal.ErrZeroArea
 	}
 
 	vkFormat := selectedFormat.Format
@@ -507,7 +522,7 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 		oldSwapchain = s.swapchain
 		oldSwapchainHandle = oldSwapchain.handle
 		if result := vkDeviceWaitIdle(device); result != vk.Success {
-			return fmt.Errorf("vulkan: vkDeviceWaitIdle before reconfigure failed: %d", result)
+			return mapVulkanResult("vkDeviceWaitIdle before reconfigure", result)
 		}
 	}
 
@@ -522,7 +537,7 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 		ImageArrayLayers: 1,
 		ImageUsage:       imageUsage,
 		ImageSharingMode: vk.SharingModeExclusive,
-		PreTransform:     capabilities.CurrentTransform,
+		PreTransform:     preTransform,
 		CompositeAlpha:   compositeAlpha,
 		PresentMode:      presentMode,
 		Clipped:          vk.True,
@@ -532,10 +547,7 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 	var swapchainHandle vk.SwapchainKHR
 	result := vkCreateSwapchainKHR(device, &createInfo, nil, &swapchainHandle)
 	if result != vk.Success {
-		if result == vk.ErrorSurfaceLostKhr {
-			return hal.ErrSurfaceLost
-		}
-		return fmt.Errorf("vulkan: vkCreateSwapchainKHR failed: %d", result)
+		return mapSwapchainCreateResult(result)
 	}
 
 	// Get swapchain images
@@ -584,7 +596,7 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 				vkDestroyImageViewSwapchain(device, imageViews[j], nil)
 			}
 			vkDestroySwapchainKHR(device, swapchainHandle, nil)
-			return fmt.Errorf("vulkan: vkCreateImageView failed: %d", result)
+			return mapVulkanResult("vkCreateImageView", result)
 		}
 	}
 
@@ -619,7 +631,7 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 				vkDestroyImageViewSwapchain(device, view, nil)
 			}
 			vkDestroySwapchainKHR(device, swapchainHandle, nil)
-			return fmt.Errorf("vulkan: vkCreateSemaphore (acquireSemaphore[%d]) failed: %d", i, result)
+			return fmt.Errorf("vulkan: create acquire semaphore %d: %w", i, mapVulkanResult("vkCreateSemaphore", result))
 		}
 	}
 
@@ -643,7 +655,7 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 				vkDestroyImageViewSwapchain(device, view, nil)
 			}
 			vkDestroySwapchainKHR(device, swapchainHandle, nil)
-			return fmt.Errorf("vulkan: vkCreateSemaphore (presentSemaphore[%d]) failed: %d", i, result)
+			return fmt.Errorf("vulkan: create present semaphore %d: %w", i, mapVulkanResult("vkCreateSemaphore", result))
 		}
 	}
 
@@ -711,13 +723,22 @@ func (s *Surface) createSwapchain(device *Device, config *hal.SurfaceConfigurati
 	if fenceResult != vk.Success {
 		_ = swapchain.destroyResources()
 		vkDestroySwapchainKHR(device, swapchainHandle, nil)
-		return fmt.Errorf("vulkan: vkCreateFence (acquire) failed: %d", fenceResult)
+		return fmt.Errorf("vulkan: create acquire fence: %w", mapVulkanResult("vkCreateFence", fenceResult))
 	}
 	swapchain.acquireFence = acquireFence
 
 	// Link swapchain to surface textures
 	for _, tex := range surfaceTextures {
 		tex.swapchain = swapchain
+	}
+
+	// Register before retiring an existing swapchain. If device teardown has
+	// started, the replacement is discarded and the old surface state remains
+	// available for the device teardown path to drain.
+	if err := device.registerConfiguredSurface(s); err != nil {
+		_ = swapchain.destroyResources()
+		vkDestroySwapchainKHR(device, swapchainHandle, nil)
+		return fmt.Errorf("vulkan: register configured surface: %w", err)
 	}
 
 	// Retire the old swapchain only after the replacement has fully succeeded.
@@ -758,7 +779,7 @@ func (sc *Swapchain) releaseSyncResources() error {
 		return nil
 	}
 	if result := vkDeviceWaitIdle(sc.device); result != vk.Success {
-		return fmt.Errorf("vulkan: vkDeviceWaitIdle before releasing swapchain synchronization failed: %d", result)
+		return mapVulkanResult("vkDeviceWaitIdle before releasing swapchain synchronization", result)
 	}
 	sc.releaseSyncResourcesAfterIdle()
 	return nil
@@ -813,6 +834,13 @@ func (sc *Swapchain) destroyResourcesAfterIdle() error {
 	}
 	sc.imageViews = nil
 	sc.images = nil
+	for _, texture := range sc.surfaceTextures {
+		if texture != nil {
+			texture.handle = 0
+			texture.view = 0
+			texture.swapchain = nil
+		}
+	}
 	sc.surfaceTextures = nil
 
 	if sc.acquireFence != 0 {
@@ -865,7 +893,44 @@ func (sc *Swapchain) destroyWithError() error {
 	}
 	sc.destroyed = true
 	sc.broken = true
+	sc.device = nil
+	sc.surface = nil
 	return nil
+}
+
+// abandonDeviceResources clears handles whose storage will be reclaimed by
+// vkDestroyDevice after a failed device drain. No Vulkan command is issued:
+// using synchronization or child-destroy commands after an unsuccessful
+// vkDeviceWaitIdle would not provide a valid lifetime guarantee.
+func (sc *Swapchain) abandonDeviceResources() {
+	if sc == nil {
+		return
+	}
+	for _, texture := range sc.surfaceTextures {
+		if texture != nil {
+			texture.handle = 0
+			texture.view = 0
+			texture.swapchain = nil
+		}
+	}
+	sc.handle = 0
+	sc.images = nil
+	sc.imageViews = nil
+	sc.acquireSemaphores = nil
+	sc.acquireFenceValues = nil
+	sc.presentSemaphores = nil
+	sc.surfaceTextures = nil
+	sc.imageLayouts = nil
+	sc.acquireFence = 0
+	sc.barrierFence = 0
+	sc.barrierPool = 0
+	sc.currentAcquireSem = 0
+	sc.imageAcquired = false
+	sc.destroyed = true
+	sc.broken = true
+	sc.failureErr = hal.ErrDeviceLost
+	sc.device = nil
+	sc.surface = nil
 }
 
 // acquireNextImage acquires the next available swapchain image.
@@ -901,7 +966,9 @@ func (sc *Swapchain) acquireNextImage() (*SwapchainTexture, bool, error) {
 	// Timeout for acquire - match wgpu-core's FRAME_TIMEOUT_MS = 1000
 	// This is the proven timeout that works across drivers.
 	// On timeout, caller should retry once (wgpu pattern).
-	const timeout = uint64(1_000_000_000) // 1000ms = 1 second
+	const requestedTimeout = uint64(1_000_000_000) // 1000ms = 1 second
+	policy := swapchainPolicyForSurface(sc.surface)
+	timeout := policy.acquireTimeout(requestedTimeout)
 
 	// Get the acquire semaphore from the rotating pool.
 	acquireIdx := sc.nextAcquireIdx
@@ -961,7 +1028,7 @@ func (sc *Swapchain) acquireNextImage() (*SwapchainTexture, bool, error) {
 		sc.markBroken(hal.ErrDeviceLost)
 		return nil, false, hal.ErrDeviceLost
 	default:
-		err := fmt.Errorf("vulkan: vkAcquireNextImageKHR failed: %d", result)
+		err := mapVulkanResult("vkAcquireNextImageKHR", result)
 		sc.markBroken(err)
 		return nil, false, err
 	}
@@ -974,12 +1041,12 @@ func (sc *Swapchain) acquireNextImage() (*SwapchainTexture, bool, error) {
 	if fence != 0 {
 		waitResult := sc.device.cmds.WaitForFences(sc.device.handle, 1, &fence, vk.True, timeout)
 		if waitResult != vk.Success {
-			sc.markBroken(fmt.Errorf("vulkan: vkWaitForFences after acquire failed: %d", waitResult))
+			sc.markBroken(mapVulkanResult("vkWaitForFences after acquire", waitResult))
 			return nil, false, sc.failureErr
 		}
 		resetResult := sc.device.cmds.ResetFences(sc.device.handle, 1, &fence)
 		if resetResult != vk.Success {
-			sc.markBroken(fmt.Errorf("vulkan: vkResetFences after acquire failed: %d", resetResult))
+			sc.markBroken(mapVulkanResult("vkResetFences after acquire", resetResult))
 			return nil, false, sc.failureErr
 		}
 	}
@@ -1004,7 +1071,7 @@ func (sc *Swapchain) acquireNextImage() (*SwapchainTexture, bool, error) {
 	// can insert a barrier if no render pass transitions to PRESENT_SRC_KHR.
 	sc.imageLayouts[imageIndex] = vk.ImageLayoutUndefined
 
-	return sc.surfaceTextures[imageIndex], result == vk.SuboptimalKhr, nil
+	return sc.surfaceTextures[imageIndex], policy.reportSuboptimal(result == vk.SuboptimalKhr), nil
 }
 
 // present presents the current image to the screen.
@@ -1100,7 +1167,9 @@ func (sc *Swapchain) present(queue *Queue, damageRects []image.Rectangle) error 
 	case vk.Success:
 		return nil
 	case vk.SuboptimalKhr:
-		// Suboptimal but presented successfully
+		if swapchainPolicyForSurface(sc.surface).reportSuboptimal(true) {
+			hal.Logger().Debug("vulkan: suboptimal swapchain present", "imageIndex", sc.currentImage)
+		}
 		return nil
 	case vk.ErrorOutOfDateKhr:
 		sc.markBroken(hal.ErrSurfaceOutdated)
@@ -1112,7 +1181,7 @@ func (sc *Swapchain) present(queue *Queue, damageRects []image.Rectangle) error 
 		sc.markBroken(hal.ErrDeviceLost)
 		return hal.ErrDeviceLost
 	default:
-		err := fmt.Errorf("vulkan: vkQueuePresentKHR failed: %d", result)
+		err := mapVulkanResult("vkQueuePresentKHR", result)
 		sc.markBroken(err)
 		return err
 	}
@@ -1170,7 +1239,7 @@ func (sc *Swapchain) ensurePresentLayout(queue *Queue) error {
 		var pool vk.CommandPool
 		result := sc.device.cmds.CreateCommandPool(sc.device.handle, &createInfo, nil, &pool)
 		if result != vk.Success {
-			return fmt.Errorf("vulkan: vkCreateCommandPool (barrier) failed: %d", result)
+			return fmt.Errorf("vulkan: create present barrier pool: %w", mapVulkanResult("vkCreateCommandPool", result))
 		}
 		sc.device.setObjectName(vk.ObjectTypeCommandPool, uint64(pool), "PresentBarrierPool")
 		sc.barrierPool = pool
@@ -1186,7 +1255,7 @@ func (sc *Swapchain) ensurePresentLayout(queue *Queue) error {
 		if fenceResult != vk.Success {
 			sc.device.cmds.DestroyCommandPool(sc.device.handle, pool, nil)
 			sc.barrierPool = 0
-			return fmt.Errorf("vulkan: vkCreateFence (barrier) failed: %d", fenceResult)
+			return fmt.Errorf("vulkan: create present barrier fence: %w", mapVulkanResult("vkCreateFence", fenceResult))
 		}
 		sc.device.setObjectName(vk.ObjectTypeFence, uint64(fence), "PresentBarrierFence")
 		sc.barrierFence = fence
@@ -1202,7 +1271,7 @@ func (sc *Swapchain) ensurePresentLayout(queue *Queue) error {
 	var cmdBuf vk.CommandBuffer
 	result := sc.device.cmds.AllocateCommandBuffers(sc.device.handle, &allocInfo, &cmdBuf)
 	if result != vk.Success {
-		return fmt.Errorf("vulkan: vkAllocateCommandBuffers (barrier) failed: %d", result)
+		return fmt.Errorf("vulkan: allocate present barrier command buffer: %w", mapVulkanResult("vkAllocateCommandBuffers", result))
 	}
 
 	// Begin recording.
@@ -1212,7 +1281,7 @@ func (sc *Swapchain) ensurePresentLayout(queue *Queue) error {
 	}
 	result = sc.device.cmds.BeginCommandBuffer(cmdBuf, &beginInfo)
 	if result != vk.Success {
-		return fmt.Errorf("vulkan: vkBeginCommandBuffer (barrier) failed: %d", result)
+		return fmt.Errorf("vulkan: begin present barrier command buffer: %w", mapVulkanResult("vkBeginCommandBuffer", result))
 	}
 
 	// Determine source access mask and pipeline stage based on the tracked layout.
@@ -1271,7 +1340,7 @@ func (sc *Swapchain) ensurePresentLayout(queue *Queue) error {
 	// End recording.
 	result = sc.device.cmds.EndCommandBuffer(cmdBuf)
 	if result != vk.Success {
-		return fmt.Errorf("vulkan: vkEndCommandBuffer (barrier) failed: %d", result)
+		return fmt.Errorf("vulkan: end present barrier command buffer: %w", mapVulkanResult("vkEndCommandBuffer", result))
 	}
 
 	// Submit the barrier command buffer with the barrier fence. No semaphores —
@@ -1289,7 +1358,7 @@ func (sc *Swapchain) ensurePresentLayout(queue *Queue) error {
 	}
 	result = sc.device.cmds.QueueSubmit(queue.handle, 1, &submitInfo, sc.barrierFence)
 	if result != vk.Success {
-		return fmt.Errorf("vulkan: vkQueueSubmit (barrier) failed: %d", result)
+		return fmt.Errorf("vulkan: submit present barrier: %w", mapVulkanResult("vkQueueSubmit", result))
 	}
 
 	// Wait for the barrier submission to complete on the GPU before resetting
@@ -1303,18 +1372,18 @@ func (sc *Swapchain) ensurePresentLayout(queue *Queue) error {
 	const barrierTimeout = uint64(1_000_000_000) // 1 second
 	waitResult := sc.device.cmds.WaitForFences(sc.device.handle, 1, &sc.barrierFence, vk.True, barrierTimeout)
 	if waitResult != vk.Success {
-		return fmt.Errorf("vulkan: vkWaitForFences (barrier) failed: %d", waitResult)
+		return fmt.Errorf("vulkan: wait for present barrier: %w", mapVulkanResult("vkWaitForFences", waitResult))
 	}
 	resetResult := sc.device.cmds.ResetFences(sc.device.handle, 1, &sc.barrierFence)
 	if resetResult != vk.Success {
-		return fmt.Errorf("vulkan: vkResetFences (barrier) failed: %d", resetResult)
+		return fmt.Errorf("vulkan: reset present barrier fence: %w", mapVulkanResult("vkResetFences", resetResult))
 	}
 
 	// Reset the command pool so the buffer can be reused next frame.
 	// Safe now because WaitForFences guarantees the command buffer is complete.
 	resetPoolResult := sc.device.cmds.ResetCommandPool(sc.device.handle, sc.barrierPool, 0)
 	if resetPoolResult != vk.Success {
-		return fmt.Errorf("vulkan: vkResetCommandPool (barrier) failed: %d", resetPoolResult)
+		return fmt.Errorf("vulkan: reset present barrier pool: %w", mapVulkanResult("vkResetCommandPool", resetPoolResult))
 	}
 
 	// Update tracked layout only after the barrier completed and its command

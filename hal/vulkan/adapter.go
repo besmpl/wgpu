@@ -32,6 +32,14 @@ func (a *Adapter) Open(features gputypes.Features, limits gputypes.Limits) (hal.
 // family. Surface-qualified adapters use the constrained path so the queue
 // selected during the surface query is the same queue passed into Open.
 func (a *Adapter) open(features gputypes.Features, limits gputypes.Limits, requestedQueueFamily *uint32) (hal.OpenDevice, error) {
+	if a == nil || a.instance == nil {
+		return hal.OpenDevice{}, fmt.Errorf("vulkan: adapter has no instance")
+	}
+	if err := a.instance.beginResourceCreation(); err != nil {
+		return hal.OpenDevice{}, err
+	}
+	defer a.instance.endResourceCreation()
+
 	// Find queue families
 	var queueFamilyCount uint32
 	vkGetPhysicalDeviceQueueFamilyProperties(a.instance, a.physicalDevice, &queueFamilyCount, nil)
@@ -81,33 +89,13 @@ func (a *Adapter) open(features gputypes.Features, limits gputypes.Limits, reque
 		PQueuePriorities: &queuePriority,
 	}
 
-	// Query supported device extensions to enable optional features.
-	hasIncrementalPresent := false
-	{
-		var extCount uint32
-		a.instance.cmds.EnumerateDeviceExtensionProperties(a.physicalDevice, 0, &extCount, nil)
-		if extCount > 0 {
-			extProps := make([]vk.ExtensionProperties, extCount)
-			a.instance.cmds.EnumerateDeviceExtensionProperties(a.physicalDevice, 0, &extCount, &extProps[0])
-			for i := range extProps {
-				name := cStringToGo(extProps[i].ExtensionName[:])
-				if name == "VK_KHR_incremental_present" {
-					hasIncrementalPresent = true
-					break
-				}
-			}
-		}
+	availableExtensions, err := enumerateDeviceExtensions(a.instance, a.physicalDevice)
+	if err != nil {
+		return hal.OpenDevice{}, fmt.Errorf("vulkan: query device extensions: %w", err)
 	}
-
-	// Required extensions
-	extensions := []string{
-		"VK_KHR_swapchain\x00",
-	}
-	// Optional: VK_KHR_incremental_present for damage-aware presentation.
-	// Allows chaining VkPresentRegionsKHR into VkPresentInfoKHR.PNext
-	// so the compositor can skip recompositing unchanged pixels.
-	if hasIncrementalPresent {
-		extensions = append(extensions, "VK_KHR_incremental_present\x00")
+	extensions, hasIncrementalPresent, err := selectDeviceExtensions(availableExtensions)
+	if err != nil {
+		return hal.OpenDevice{}, err
 	}
 	extensionPtrs := make([]uintptr, len(extensions))
 	for i, ext := range extensions {
@@ -151,7 +139,7 @@ func (a *Adapter) open(features gputypes.Features, limits gputypes.Limits, reque
 	var device vk.Device
 	result := vkCreateDevice(a.instance, a.physicalDevice, &deviceCreateInfo, nil, &device)
 	if result != vk.Success {
-		return hal.OpenDevice{}, fmt.Errorf("vulkan: vkCreateDevice failed: %d", result)
+		return hal.OpenDevice{}, mapVulkanResult("vkCreateDevice", result)
 	}
 
 	// Load device-level commands
@@ -220,6 +208,10 @@ func (a *Adapter) open(features gputypes.Features, limits gputypes.Limits, reque
 
 	// Store queue reference in device for swapchain synchronization
 	dev.queue = q
+	if err := a.instance.registerDevice(dev); err != nil {
+		dev.Destroy()
+		return hal.OpenDevice{}, fmt.Errorf("vulkan: register device lifetime: %w", err)
+	}
 
 	syncMode := "binary fence pool (VK-IMPL-003)"
 	if dev.timelineFence.isTimeline {
@@ -235,6 +227,64 @@ func (a *Adapter) open(features gputypes.Features, limits gputypes.Limits, reque
 		Device: dev,
 		Queue:  q,
 	}, nil
+}
+
+const (
+	swapchainExtension          = "VK_KHR_swapchain"
+	incrementalPresentExtension = "VK_KHR_incremental_present"
+	deviceExtensionQueryRetries = 3
+)
+
+func enumerateDeviceExtensions(instance *Instance, device vk.PhysicalDevice) (map[string]struct{}, error) {
+	return enumerateDeviceExtensionsWith(func(count *uint32, properties *vk.ExtensionProperties) vk.Result {
+		return instance.cmds.EnumerateDeviceExtensionProperties(device, 0, count, properties)
+	})
+}
+
+func enumerateDeviceExtensionsWith(query func(count *uint32, properties *vk.ExtensionProperties) vk.Result) (map[string]struct{}, error) {
+	for attempt := 0; attempt < deviceExtensionQueryRetries; attempt++ {
+		var count uint32
+		result := query(&count, nil)
+		if result != vk.Success && result != vk.Incomplete {
+			return nil, fmt.Errorf("vkEnumerateDeviceExtensionProperties count query: %w", mapVulkanResult("vkEnumerateDeviceExtensionProperties", result))
+		}
+		if count == 0 {
+			if result == vk.Incomplete {
+				continue
+			}
+			return map[string]struct{}{}, nil
+		}
+
+		properties := make([]vk.ExtensionProperties, count)
+		returned := count
+		result = query(&returned, &properties[0])
+		if result != vk.Success && result != vk.Incomplete {
+			return nil, mapVulkanResult("vkEnumerateDeviceExtensionProperties", result)
+		}
+		if result == vk.Incomplete || returned > uint32(len(properties)) {
+			continue
+		}
+
+		available := make(map[string]struct{}, returned)
+		for _, property := range properties[:returned] {
+			available[cStringToGo(property.ExtensionName[:])] = struct{}{}
+		}
+		return available, nil
+	}
+	return nil, fmt.Errorf("vkEnumerateDeviceExtensionProperties returned an unstable count after %d attempts", deviceExtensionQueryRetries)
+}
+
+func selectDeviceExtensions(available map[string]struct{}) (extensions []string, hasIncrementalPresent bool, err error) {
+	if _, ok := available[swapchainExtension]; !ok {
+		return nil, false, fmt.Errorf("vulkan: required device extension %s is unavailable", swapchainExtension)
+	}
+
+	extensions = append(extensions, swapchainExtension+"\x00")
+	if _, ok := available[incrementalPresentExtension]; ok {
+		extensions = append(extensions, incrementalPresentExtension+"\x00")
+		hasIncrementalPresent = true
+	}
+	return extensions, hasIncrementalPresent, nil
 }
 
 // TextureFormatCapabilities returns capabilities for a texture format.
@@ -265,7 +315,12 @@ func (a *Adapter) TextureFormatCapabilities(format gputypes.TextureFormat) hal.T
 // SurfaceCapabilities returns surface capabilities.
 func (a *Adapter) SurfaceCapabilities(surface hal.Surface) *hal.SurfaceCapabilities {
 	vkSurface, ok := surface.(*Surface)
-	if !ok || vkSurface == nil || vkSurface.instance == nil || vkSurface.instance != a.instance {
+	if !ok || vkSurface == nil {
+		return nil
+	}
+	vkSurface.mu.Lock()
+	defer vkSurface.mu.Unlock()
+	if vkSurface.instance == nil || vkSurface.instance != a.instance || vkSurface.handle == 0 || vkSurface.destroyRequested {
 		return nil
 	}
 	if vkSurface.validatePlatform() != nil {
@@ -313,6 +368,11 @@ func (a *qualifiedAdapter) SurfaceCapabilities(surface hal.Surface) *hal.Surface
 	if !ok || vkSurface != a.surface {
 		return nil
 	}
+	vkSurface.mu.Lock()
+	defer vkSurface.mu.Unlock()
+	if vkSurface.handle == 0 || vkSurface.destroyRequested {
+		return nil
+	}
 	if vkSurface.validatePlatform() != nil {
 		return nil
 	}
@@ -327,7 +387,12 @@ func (a *qualifiedAdapter) Destroy() {}
 // checked surface capability snapshot without mutating the cached adapter.
 func (a *Adapter) QualifySurface(surface hal.Surface) (hal.Adapter, error) {
 	vkSurface, ok := surface.(*Surface)
-	if !ok || vkSurface == nil || vkSurface.handle == 0 {
+	if !ok || vkSurface == nil {
+		return nil, fmt.Errorf("vulkan: invalid surface for adapter qualification")
+	}
+	vkSurface.mu.Lock()
+	defer vkSurface.mu.Unlock()
+	if vkSurface.handle == 0 || vkSurface.destroyRequested {
 		return nil, fmt.Errorf("vulkan: invalid surface for adapter qualification")
 	}
 	if vkSurface.instance == nil || vkSurface.instance != a.instance {
@@ -388,7 +453,7 @@ func (a *Adapter) presentGraphicsQueueFamily(surface *Surface, families []vk.Que
 		result := a.instance.cmds.GetPhysicalDeviceSurfaceSupportKHR(
 			a.physicalDevice, uint32(index), surface.handle, &supported)
 		if result != vk.Success {
-			return 0, fmt.Errorf("vulkan: vkGetPhysicalDeviceSurfaceSupportKHR(queueFamily=%d) failed: %d", index, result)
+			return 0, fmt.Errorf("vulkan: query presentation support for queue family %d: %w", index, mapVulkanResult("vkGetPhysicalDeviceSurfaceSupportKHR", result))
 		}
 		supports[index] = supported != 0
 	}
@@ -416,7 +481,7 @@ func (a *Adapter) querySurfaceSnapshot(surface *Surface) (surfaceSnapshot, error
 	result := a.instance.cmds.GetPhysicalDeviceSurfaceCapabilitiesKHR(
 		a.physicalDevice, surface.handle, &capabilities)
 	if result != vk.Success {
-		return surfaceSnapshot{}, fmt.Errorf("vulkan: vkGetPhysicalDeviceSurfaceCapabilitiesKHR failed: %d", result)
+		return surfaceSnapshot{}, mapVulkanResult("vkGetPhysicalDeviceSurfaceCapabilitiesKHR", result)
 	}
 
 	formats, err := querySurfaceFormats(a.instance, a.physicalDevice, surface.handle)
@@ -442,7 +507,7 @@ func querySurfaceFormatsWith(query func(count *uint32, formats *vk.SurfaceFormat
 		var count uint32
 		result := query(&count, nil)
 		if result != vk.Success && result != vk.Incomplete {
-			return nil, fmt.Errorf("vulkan: vkGetPhysicalDeviceSurfaceFormatsKHR (count) failed: %d", result)
+			return nil, fmt.Errorf("vulkan: surface format count: %w", mapVulkanResult("vkGetPhysicalDeviceSurfaceFormatsKHR", result))
 		}
 		if count == 0 {
 			return nil, nil //nolint:nilnil // an empty query is a checked incompatible result
@@ -452,7 +517,7 @@ func querySurfaceFormatsWith(query func(count *uint32, formats *vk.SurfaceFormat
 		returned := count
 		result = query(&returned, &formats[0])
 		if result != vk.Success && result != vk.Incomplete {
-			return nil, fmt.Errorf("vulkan: vkGetPhysicalDeviceSurfaceFormatsKHR failed: %d", result)
+			return nil, mapVulkanResult("vkGetPhysicalDeviceSurfaceFormatsKHR", result)
 		}
 		if result == vk.Incomplete || returned > uint32(len(formats)) {
 			continue
@@ -473,7 +538,7 @@ func queryPresentModesWith(query func(count *uint32, modes *vk.PresentModeKHR) v
 		var count uint32
 		result := query(&count, nil)
 		if result != vk.Success && result != vk.Incomplete {
-			return nil, fmt.Errorf("vulkan: vkGetPhysicalDeviceSurfacePresentModesKHR (count) failed: %d", result)
+			return nil, fmt.Errorf("vulkan: present mode count: %w", mapVulkanResult("vkGetPhysicalDeviceSurfacePresentModesKHR", result))
 		}
 		if count == 0 {
 			return nil, nil //nolint:nilnil // an empty query is a checked incompatible result
@@ -483,7 +548,7 @@ func queryPresentModesWith(query func(count *uint32, modes *vk.PresentModeKHR) v
 		returned := count
 		result = query(&returned, &modes[0])
 		if result != vk.Success && result != vk.Incomplete {
-			return nil, fmt.Errorf("vulkan: vkGetPhysicalDeviceSurfacePresentModesKHR failed: %d", result)
+			return nil, mapVulkanResult("vkGetPhysicalDeviceSurfacePresentModesKHR", result)
 		}
 		if result == vk.Incomplete || returned > uint32(len(modes)) {
 			continue

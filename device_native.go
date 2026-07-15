@@ -22,6 +22,7 @@ import (
 type Device struct {
 	core     *core.Device
 	queue    *Queue
+	instance *Instance
 	released atomic.Bool
 
 	// cmdEncoderPool is the single shared encoder pool for the device.
@@ -922,6 +923,12 @@ func (d *Device) Release() {
 		return
 	}
 	d.released.Store(true)
+	if d.instance != nil {
+		defer func() {
+			d.instance.unregisterDevice(d)
+			d.instance = nil
+		}()
+	}
 
 	// Step 0: Wait for ALL GPU work to finish. This ensures PollCompleted()
 	// returns the final submission index, so Triage processes all submissions
@@ -960,6 +967,9 @@ func (d *Device) Release() {
 	// Step 3: Destroy core + HAL device. core.Destroy() calls FlushAll again
 	// (idempotent — already flushed) then halDevice.Destroy().
 	d.core.Destroy()
+	if d.queue != nil {
+		d.queue.invalidate()
+	}
 }
 
 // destroyQueue returns the device's DestroyQueue for deferred resource destruction.

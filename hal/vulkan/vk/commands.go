@@ -40,6 +40,7 @@ package vk
 
 import (
 	"fmt"
+	"strings"
 	"unsafe"
 )
 
@@ -122,11 +123,37 @@ func (c *Commands) LoadInstance(instance Instance) error {
 	c.createDebugUtilsMessengerEXT = GetInstanceProcAddr(instance, "vkCreateDebugUtilsMessengerEXT")
 	c.destroyDebugUtilsMessengerEXT = GetInstanceProcAddr(instance, "vkDestroyDebugUtilsMessengerEXT")
 
-	// Verify critical functions loaded
-	if c.destroyInstance == nil || c.enumeratePhysicalDevices == nil || c.createDevice == nil {
-		return fmt.Errorf("failed to load critical instance functions")
+	if err := c.requireCoreInstanceCommands(); err != nil {
+		return err
 	}
 
+	return nil
+}
+
+func (c *Commands) requireCoreInstanceCommands() error {
+	commands := []struct {
+		name    string
+		pointer unsafe.Pointer
+	}{
+		{"vkDestroyInstance", c.destroyInstance},
+		{"vkEnumeratePhysicalDevices", c.enumeratePhysicalDevices},
+		{"vkGetPhysicalDeviceProperties", c.getPhysicalDeviceProperties},
+		{"vkGetPhysicalDeviceQueueFamilyProperties", c.getPhysicalDeviceQueueFamilyProperties},
+		{"vkGetPhysicalDeviceMemoryProperties", c.getPhysicalDeviceMemoryProperties},
+		{"vkGetPhysicalDeviceFeatures", c.getPhysicalDeviceFeatures},
+		{"vkGetPhysicalDeviceFormatProperties", c.getPhysicalDeviceFormatProperties},
+		{"vkEnumerateDeviceExtensionProperties", c.enumerateDeviceExtensionProperties},
+		{"vkCreateDevice", c.createDevice},
+	}
+	missing := make([]string, 0)
+	for _, command := range commands {
+		if command.pointer == nil {
+			missing = append(missing, command.name)
+		}
+	}
+	if len(missing) != 0 {
+		return fmt.Errorf("failed to load required Vulkan instance commands: %s", strings.Join(missing, ", "))
+	}
 	return nil
 }
 
@@ -277,8 +304,45 @@ func (c *Commands) LoadDevice(device Device) error {
 	if c.destroyDevice == nil || c.getDeviceQueue == nil || c.queueSubmit == nil {
 		return fmt.Errorf("failed to load critical device functions")
 	}
+	if err := c.requireSwapchainCommands(); err != nil {
+		return err
+	}
 
 	return nil
+}
+
+// HasSwapchainCommands reports whether every device-level VK_KHR_swapchain
+// command used by the backend is available. The extension name alone is not
+// enough: a broken loader may still return nil entry points.
+func (c *Commands) HasSwapchainCommands() bool {
+	return len(c.missingSwapchainCommands()) == 0
+}
+
+func (c *Commands) requireSwapchainCommands() error {
+	if missing := c.missingSwapchainCommands(); len(missing) != 0 {
+		return fmt.Errorf("failed to load required VK_KHR_swapchain device commands: %s", strings.Join(missing, ", "))
+	}
+	return nil
+}
+
+func (c *Commands) missingSwapchainCommands() []string {
+	commands := []struct {
+		name    string
+		pointer unsafe.Pointer
+	}{
+		{"vkCreateSwapchainKHR", c.createSwapchainKHR},
+		{"vkDestroySwapchainKHR", c.destroySwapchainKHR},
+		{"vkGetSwapchainImagesKHR", c.getSwapchainImagesKHR},
+		{"vkAcquireNextImageKHR", c.acquireNextImageKHR},
+		{"vkQueuePresentKHR", c.queuePresentKHR},
+	}
+	missing := make([]string, 0, len(commands))
+	for _, command := range commands {
+		if command.pointer == nil {
+			missing = append(missing, command.name)
+		}
+	}
+	return missing
 }
 
 // HasTimelineSemaphore returns true if timeline semaphore functions were loaded.

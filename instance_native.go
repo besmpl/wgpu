@@ -4,6 +4,7 @@ package wgpu
 
 import (
 	"fmt"
+	"sync"
 
 	"github.com/gogpu/gputypes"
 	"github.com/gogpu/wgpu/core"
@@ -24,12 +25,18 @@ type InstanceDescriptor struct {
 // must not be called concurrently with other methods.
 type Instance struct {
 	core     *core.Instance
+	mu       sync.Mutex
 	released bool
+	devices  map[*Device]struct{}
+	surfaces map[*Surface]struct{}
 }
 
 // CreateInstance creates a new GPU instance.
 // If desc is nil, all available backends are used.
 func CreateInstance(desc *InstanceDescriptor) (*Instance, error) {
+	if err := validateNativeInstanceDescriptor(desc); err != nil {
+		return nil, err
+	}
 	var gpuDesc *gputypes.InstanceDescriptor
 	if desc != nil {
 		d := gputypes.DefaultInstanceDescriptor()
@@ -51,7 +58,7 @@ func CreateInstance(desc *InstanceDescriptor) (*Instance, error) {
 // the surface's GL context. This follows the WebGPU spec pattern where
 // requestAdapter accepts a compatible surface hint.
 func (i *Instance) RequestAdapter(opts *RequestAdapterOptions) (*Adapter, error) {
-	if i.released {
+	if i.isReleased() {
 		return nil, ErrReleased
 	}
 
@@ -113,11 +120,99 @@ func (i *Instance) RequestAdapter(opts *RequestAdapterOptions) (*Adapter, error)
 	}, nil
 }
 
-// Release releases the instance and all associated resources.
-func (i *Instance) Release() {
+func (i *Instance) isReleased() bool {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	return i.released
+}
+
+func (i *Instance) adoptDevice(device *Device) error {
+	if device == nil {
+		return fmt.Errorf("wgpu: cannot adopt a nil device")
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
 	if i.released {
+		return ErrReleased
+	}
+	if i.devices == nil {
+		i.devices = make(map[*Device]struct{})
+	}
+	i.devices[device] = struct{}{}
+	device.instance = i
+	return nil
+}
+
+func (i *Instance) unregisterDevice(device *Device) {
+	if i == nil || device == nil {
 		return
 	}
+	i.mu.Lock()
+	delete(i.devices, device)
+	i.mu.Unlock()
+}
+
+func (i *Instance) adoptSurface(surface *Surface) error {
+	if surface == nil {
+		return fmt.Errorf("wgpu: cannot adopt a nil surface")
+	}
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.released {
+		return ErrReleased
+	}
+	if i.surfaces == nil {
+		i.surfaces = make(map[*Surface]struct{})
+	}
+	i.surfaces[surface] = struct{}{}
+	return nil
+}
+
+func (i *Instance) unregisterSurface(surface *Surface) {
+	if i == nil || surface == nil {
+		return
+	}
+	i.mu.Lock()
+	delete(i.surfaces, surface)
+	i.mu.Unlock()
+}
+
+func (i *Instance) beginRelease() ([]*Surface, []*Device, bool) {
+	i.mu.Lock()
+	defer i.mu.Unlock()
+	if i.released {
+		return nil, nil, false
+	}
 	i.released = true
+
+	surfaces := make([]*Surface, 0, len(i.surfaces))
+	for surface := range i.surfaces {
+		surfaces = append(surfaces, surface)
+	}
+	devices := make([]*Device, 0, len(i.devices))
+	for device := range i.devices {
+		devices = append(devices, device)
+	}
+	clear(i.surfaces)
+	clear(i.devices)
+	return surfaces, devices, true
+}
+
+// Release releases the instance and all associated resources.
+func (i *Instance) Release() {
+	surfaces, devices, ok := i.beginRelease()
+	if !ok {
+		return
+	}
+
+	// Presentation resources depend on logical devices, and logical devices
+	// depend on the native instance. Preserve that ownership order even when
+	// callers release the Instance before their retained wrappers.
+	for _, surface := range surfaces {
+		surface.Release()
+	}
+	for _, device := range devices {
+		device.Release()
+	}
 	i.core.Destroy()
 }

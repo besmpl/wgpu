@@ -114,6 +114,22 @@ func TestInstanceRelease(t *testing.T) {
 	inst.Release()
 }
 
+func TestInstanceReleaseReleasesRetainedDevice(t *testing.T) {
+	inst, adapter, device := newDevice(t)
+
+	inst.Release()
+	if err := device.WaitIdle(); !errors.Is(err, wgpu.ErrReleased) {
+		t.Fatalf("Device.WaitIdle after Instance.Release: got %v, want ErrReleased", err)
+	}
+	if _, err := adapter.RequestDevice(nil); !errors.Is(err, wgpu.ErrReleased) {
+		t.Fatalf("Adapter.RequestDevice after Instance.Release: got %v, want ErrReleased", err)
+	}
+
+	// Retained wrappers remain safe and idempotent after instance-owned teardown.
+	device.Release()
+	adapter.Release()
+}
+
 // --- Adapter tests ---
 
 func TestInstanceRequestAdapter(t *testing.T) {

@@ -1,0 +1,142 @@
+//go:build !(js && wasm)
+
+// Copyright 2026 The GoGPU Authors
+// SPDX-License-Identifier: MIT
+
+package vulkan
+
+import (
+	"errors"
+	"math"
+	"testing"
+
+	"github.com/gogpu/wgpu/hal"
+	"github.com/gogpu/wgpu/hal/vulkan/vk"
+)
+
+func TestSwapchainPlatformPolicyAcquireTimeout(t *testing.T) {
+	const requested = uint64(1_000_000_000)
+	tests := []struct {
+		name   string
+		policy swapchainPlatformPolicy
+		want   uint64
+	}{
+		{name: "desktop", policy: defaultSwapchainPlatformPolicy(), want: requested},
+		{name: "Android API 29", policy: androidSwapchainPlatformPolicy(29), want: math.MaxUint64},
+		{name: "Android API 30", policy: androidSwapchainPlatformPolicy(30), want: requested},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := test.policy.acquireTimeout(requested); got != test.want {
+				t.Fatalf("acquireTimeout(%d) = %d, want %d", requested, got, test.want)
+			}
+		})
+	}
+}
+
+func TestSwapchainPlatformPolicyTransform(t *testing.T) {
+	capabilities := vk.SurfaceCapabilitiesKHR{
+		CurrentTransform: vk.SurfaceTransformRotate90BitKhr,
+		SupportedTransforms: vk.SurfaceTransformFlagsKHR(
+			vk.SurfaceTransformIdentityBitKhr | vk.SurfaceTransformRotate90BitKhr,
+		),
+	}
+	desktop, err := defaultSwapchainPlatformPolicy().preTransform(capabilities)
+	if err != nil {
+		t.Fatalf("desktop preTransform() error: %v", err)
+	}
+	if desktop != vk.SurfaceTransformRotate90BitKhr {
+		t.Fatalf("desktop transform = %v, want current transform", desktop)
+	}
+
+	android, err := androidSwapchainPlatformPolicy(29).preTransform(capabilities)
+	if err != nil {
+		t.Fatalf("Android preTransform() error: %v", err)
+	}
+	if android != vk.SurfaceTransformIdentityBitKhr {
+		t.Fatalf("Android transform = %v, want identity", android)
+	}
+
+	capabilities.SupportedTransforms = vk.SurfaceTransformFlagsKHR(vk.SurfaceTransformRotate90BitKhr)
+	if _, err := androidSwapchainPlatformPolicy(29).preTransform(capabilities); err == nil {
+		t.Fatal("Android identity transform was accepted when unsupported")
+	}
+}
+
+func TestSwapchainPlatformPolicySuboptimal(t *testing.T) {
+	if !defaultSwapchainPlatformPolicy().reportSuboptimal(true) {
+		t.Fatal("desktop suboptimal result was suppressed")
+	}
+	if androidSwapchainPlatformPolicy(29).reportSuboptimal(true) {
+		t.Fatal("Android suboptimal result was reported")
+	}
+}
+
+func TestMapSwapchainCreateResult(t *testing.T) {
+	tests := []struct {
+		result vk.Result
+		want   error
+	}{
+		{result: vk.ErrorSurfaceLostKhr, want: hal.ErrSurfaceLost},
+		{result: vk.ErrorInitializationFailed, want: hal.ErrSurfaceLost},
+		{result: vk.ErrorDeviceLost, want: hal.ErrDeviceLost},
+		{result: vk.ErrorOutOfHostMemory, want: hal.ErrDeviceOutOfMemory},
+		{result: vk.ErrorOutOfDeviceMemory, want: hal.ErrDeviceOutOfMemory},
+	}
+	for _, test := range tests {
+		if err := mapSwapchainCreateResult(test.result); !errors.Is(err, test.want) {
+			t.Fatalf("mapSwapchainCreateResult(%d) = %v, want %v", test.result, err, test.want)
+		}
+	}
+	if err := mapSwapchainCreateResult(vk.ErrorNativeWindowInUseKhr); err == nil {
+		t.Fatal("native-window-in-use result returned nil")
+	}
+	if err := mapSwapchainCreateResult(vk.ErrorUnknown); err == nil {
+		t.Fatal("unknown swapchain creation result returned nil")
+	}
+}
+
+func TestMapVulkanResultPreservesRecoverableErrors(t *testing.T) {
+	tests := []struct {
+		result vk.Result
+		want   error
+	}{
+		{result: vk.ErrorOutOfHostMemory, want: hal.ErrDeviceOutOfMemory},
+		{result: vk.ErrorOutOfDeviceMemory, want: hal.ErrDeviceOutOfMemory},
+		{result: vk.ErrorDeviceLost, want: hal.ErrDeviceLost},
+		{result: vk.ErrorSurfaceLostKhr, want: hal.ErrSurfaceLost},
+		{result: vk.ErrorOutOfDateKhr, want: hal.ErrSurfaceOutdated},
+		{result: vk.Timeout, want: hal.ErrTimeout},
+		{result: vk.NotReady, want: hal.ErrNotReady},
+	}
+	for _, test := range tests {
+		if err := mapVulkanResult("operation", test.result); !errors.Is(err, test.want) {
+			t.Fatalf("mapVulkanResult(%d) = %v, want %v", test.result, err, test.want)
+		}
+	}
+	if err := mapVulkanResult("operation", vk.Success); err != nil {
+		t.Fatalf("mapVulkanResult(Success) = %v, want nil", err)
+	}
+	if err := mapVulkanResult("operation", vk.ErrorUnknown); err == nil {
+		t.Fatal("mapVulkanResult(ErrorUnknown) returned nil")
+	}
+}
+
+func TestMapAndroidSurfaceCreateErrorPreservesRecoverableErrors(t *testing.T) {
+	tests := []struct {
+		result vk.Result
+		want   error
+	}{
+		{result: vk.ErrorSurfaceLostKhr, want: hal.ErrSurfaceLost},
+		{result: vk.ErrorNativeWindowInUseKhr, want: hal.ErrSurfaceLost},
+		{result: vk.ErrorInitializationFailed, want: hal.ErrSurfaceLost},
+		{result: vk.ErrorDeviceLost, want: hal.ErrDeviceLost},
+		{result: vk.ErrorOutOfHostMemory, want: hal.ErrDeviceOutOfMemory},
+		{result: vk.ErrorOutOfDeviceMemory, want: hal.ErrDeviceOutOfMemory},
+	}
+	for _, test := range tests {
+		if err := mapAndroidSurfaceCreateError(test.result); !errors.Is(err, test.want) {
+			t.Fatalf("mapAndroidSurfaceCreateError(%d) = %v, want %v", test.result, err, test.want)
+		}
+	}
+}

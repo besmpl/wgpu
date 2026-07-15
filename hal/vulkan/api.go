@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"runtime"
 	"strings"
+	"sync"
 	"unsafe"
 
 	"github.com/gogpu/gputypes"
@@ -42,7 +43,7 @@ func (Backend) CreateInstance(desc *hal.InstanceDescriptor) (hal.Instance, error
 		return nil, fmt.Errorf("vulkan: failed to load global commands: %w", err)
 	}
 
-	apiVersion, err := requireVulkan12(cmds)
+	loaderVersion, err := requireVulkan12(cmds)
 	if err != nil {
 		return nil, err
 	}
@@ -111,7 +112,7 @@ func (Backend) CreateInstance(desc *hal.InstanceDescriptor) (hal.Instance, error
 	var instance vk.Instance
 	result := cmds.CreateInstance(&createInfo, nil, &instance)
 	if result != vk.Success {
-		return nil, fmt.Errorf("vulkan: vkCreateInstance failed: %d", result)
+		return nil, mapVulkanResult("vkCreateInstance", result)
 	}
 
 	// Load instance-level commands
@@ -142,7 +143,6 @@ func (Backend) CreateInstance(desc *hal.InstanceDescriptor) (hal.Instance, error
 		cmds:           *cmds,
 		debugEnabled:   validationEnabled,
 		surfaceEnabled: surfaceEnabled,
-		apiVersion:     apiVersion,
 		platform:       platform,
 	}
 
@@ -154,6 +154,7 @@ func (Backend) CreateInstance(desc *hal.InstanceDescriptor) (hal.Instance, error
 
 	hal.Logger().Info("vulkan: instance created",
 		"apiVersion", fmt.Sprintf("%d.%d.%d", vkVersionMajor(appInfo.ApiVersion), vkVersionMinor(appInfo.ApiVersion), vkVersionPatch(appInfo.ApiVersion)),
+		"loaderVersion", fmt.Sprintf("%d.%d.%d", vkVersionMajor(loaderVersion), vkVersionMinor(loaderVersion), vkVersionPatch(loaderVersion)),
 		"validation", validationEnabled,
 	)
 
@@ -167,25 +168,134 @@ type Instance struct {
 	debugMessenger vk.DebugUtilsMessengerEXT
 	debugEnabled   bool
 	surfaceEnabled bool
-	apiVersion     uint32
 	platform       platformInstanceState
+
+	creationMu  sync.RWMutex
+	lifecycleMu sync.Mutex
+	destroying  bool
+	devices     map[*Device]struct{}
+	surfaces    map[*Surface]struct{}
+}
+
+func (i *Instance) beginResourceCreation() error {
+	if i == nil {
+		return fmt.Errorf("vulkan: instance is nil")
+	}
+	i.creationMu.RLock()
+	i.lifecycleMu.Lock()
+	unavailable := i.destroying || i.handle == 0
+	i.lifecycleMu.Unlock()
+	if unavailable {
+		i.creationMu.RUnlock()
+		return fmt.Errorf("vulkan: instance is being destroyed")
+	}
+	return nil
+}
+
+func (i *Instance) endResourceCreation() {
+	i.creationMu.RUnlock()
+}
+
+func (i *Instance) registerDevice(device *Device) error {
+	if i == nil || device == nil {
+		return fmt.Errorf("vulkan: cannot register a nil device")
+	}
+	i.lifecycleMu.Lock()
+	defer i.lifecycleMu.Unlock()
+	if i.destroying || i.handle == 0 {
+		return fmt.Errorf("vulkan: instance is being destroyed")
+	}
+	if i.devices == nil {
+		i.devices = make(map[*Device]struct{})
+	}
+	i.devices[device] = struct{}{}
+	return nil
+}
+
+func (i *Instance) unregisterDevice(device *Device) {
+	if i == nil || device == nil {
+		return
+	}
+	i.lifecycleMu.Lock()
+	delete(i.devices, device)
+	i.lifecycleMu.Unlock()
+}
+
+func (i *Instance) registerSurface(surface *Surface) error {
+	if i == nil || surface == nil {
+		return fmt.Errorf("vulkan: cannot register a nil surface")
+	}
+	i.lifecycleMu.Lock()
+	defer i.lifecycleMu.Unlock()
+	if i.destroying || i.handle == 0 {
+		return fmt.Errorf("vulkan: instance is being destroyed")
+	}
+	if i.surfaces == nil {
+		i.surfaces = make(map[*Surface]struct{})
+	}
+	i.surfaces[surface] = struct{}{}
+	return nil
+}
+
+func (i *Instance) unregisterSurface(surface *Surface) {
+	if i == nil || surface == nil {
+		return
+	}
+	i.lifecycleMu.Lock()
+	delete(i.surfaces, surface)
+	i.lifecycleMu.Unlock()
+}
+
+func (i *Instance) adoptSurface(surface *Surface) (hal.Surface, error) {
+	if surface == nil || surface.handle == 0 {
+		return nil, fmt.Errorf("vulkan: cannot adopt a null surface")
+	}
+	if err := i.registerSurface(surface); err != nil {
+		i.cmds.DestroySurfaceKHR(i.handle, surface.handle, nil)
+		surface.handle = 0
+		return nil, fmt.Errorf("vulkan: register surface lifetime: %w", err)
+	}
+	return surface, nil
+}
+
+func (i *Instance) beginDestroyResources() ([]*Surface, []*Device, bool) {
+	if i == nil {
+		return nil, nil, false
+	}
+	i.lifecycleMu.Lock()
+	defer i.lifecycleMu.Unlock()
+	if i.destroying || i.handle == 0 {
+		return nil, nil, false
+	}
+	i.destroying = true
+	surfaces := make([]*Surface, 0, len(i.surfaces))
+	for surface := range i.surfaces {
+		surfaces = append(surfaces, surface)
+	}
+	devices := make([]*Device, 0, len(i.devices))
+	for device := range i.devices {
+		devices = append(devices, device)
+	}
+	clear(i.surfaces)
+	clear(i.devices)
+	return surfaces, devices, true
 }
 
 // EnumerateAdapters returns available Vulkan adapters (physical devices).
 func (i *Instance) EnumerateAdapters(surfaceHint hal.Surface) []hal.ExposedAdapter {
-	// Get physical device count
-	var count uint32
-	i.cmds.EnumeratePhysicalDevices(i.handle, &count, nil)
-	if count == 0 {
+	devices, err := enumeratePhysicalDevicesWith(func(count *uint32, devices *vk.PhysicalDevice) vk.Result {
+		return i.cmds.EnumeratePhysicalDevices(i.handle, count, devices)
+	})
+	if err != nil {
+		hal.Logger().Error("vulkan: failed to enumerate physical devices", "error", err)
+		return nil
+	}
+	if len(devices) == 0 {
 		return nil
 	}
 
-	// Get physical devices
-	devices := make([]vk.PhysicalDevice, count)
-	i.cmds.EnumeratePhysicalDevices(i.handle, &count, &devices[0])
-
-	adapters := make([]hal.ExposedAdapter, 0, count)
-	hal.Logger().Debug("vulkan: enumerating adapters", "count", count)
+	adapters := make([]hal.ExposedAdapter, 0, len(devices))
+	hal.Logger().Debug("vulkan: enumerating adapters", "count", len(devices))
 	for _, device := range devices {
 		// Get device properties
 		var props vk.PhysicalDeviceProperties
@@ -274,26 +384,83 @@ func (i *Instance) EnumerateAdapters(surfaceHint hal.Surface) []hal.ExposedAdapt
 	return adapters
 }
 
+func enumeratePhysicalDevicesWith(query func(count *uint32, devices *vk.PhysicalDevice) vk.Result) ([]vk.PhysicalDevice, error) {
+	const attempts = 3
+	for attempt := 0; attempt < attempts; attempt++ {
+		var count uint32
+		result := query(&count, nil)
+		if result != vk.Success && result != vk.Incomplete {
+			return nil, fmt.Errorf("vulkan: physical device count: %w", mapVulkanResult("vkEnumeratePhysicalDevices", result))
+		}
+		if count == 0 {
+			if result == vk.Incomplete {
+				continue
+			}
+			return nil, nil
+		}
+		devices := make([]vk.PhysicalDevice, count)
+		returned := count
+		result = query(&returned, &devices[0])
+		if result != vk.Success && result != vk.Incomplete {
+			return nil, mapVulkanResult("vkEnumeratePhysicalDevices", result)
+		}
+		if result == vk.Incomplete || returned > uint32(len(devices)) {
+			continue
+		}
+		devices = devices[:returned]
+		for _, device := range devices {
+			if device == 0 {
+				return nil, fmt.Errorf("vulkan: vkEnumeratePhysicalDevices returned a null device")
+			}
+		}
+		return devices, nil
+	}
+	return nil, fmt.Errorf("vulkan: vkEnumeratePhysicalDevices returned an unstable count after %d attempts", attempts)
+}
+
 // Destroy releases the Vulkan instance.
 func (i *Instance) Destroy() {
-	if i.handle != 0 {
-		// Destroy debug messenger before the instance (required by Vulkan spec).
-		if i.debugMessenger != 0 {
-			destroyDebugMessenger(i, i.debugMessenger)
-			i.debugMessenger = 0
-		}
-		i.cmds.DestroyInstance(i.handle, nil)
-		i.handle = 0
+	if i == nil {
+		return
 	}
+	// Native surface/device creation holds the read side until the new object is
+	// registered. Destruction cannot pass it and invalidate VkInstance in the
+	// create-before-adopt window.
+	i.creationMu.Lock()
+	defer i.creationMu.Unlock()
+	surfaces, devices, ok := i.beginDestroyResources()
+	if !ok {
+		return
+	}
+
+	// Vulkan requires every surface/swapchain and logical device to be gone
+	// before VkInstance. Retain those relationships explicitly, matching Rust
+	// wgpu's shared-instance ownership even when callers release out of order.
+	for _, surface := range surfaces {
+		surface.Destroy()
+	}
+	for _, device := range devices {
+		device.Destroy()
+	}
+
+	// Destroy debug messenger before the instance (required by Vulkan spec).
+	if i.debugMessenger != 0 {
+		destroyDebugMessenger(i, i.debugMessenger)
+		i.debugMessenger = 0
+	}
+	i.cmds.DestroyInstance(i.handle, nil)
+	i.handle = 0
 }
 
 // Surface implements hal.Surface for Vulkan.
 type Surface struct {
-	handle    vk.SurfaceKHR
-	instance  *Instance
-	swapchain *Swapchain
-	device    *Device
-	platform  platformSurfaceState
+	mu               sync.Mutex
+	handle           vk.SurfaceKHR
+	instance         *Instance
+	swapchain        *Swapchain
+	device           *Device
+	destroyRequested bool
+	platform         platformSurfaceState
 }
 
 // Configure configures the surface for presentation.
@@ -304,6 +471,11 @@ type Surface struct {
 func (s *Surface) Configure(device hal.Device, config *hal.SurfaceConfiguration) error {
 	if s == nil {
 		return fmt.Errorf("vulkan: surface is nil")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.destroyRequested || s.handle == 0 {
+		return hal.ErrSurfaceLost
 	}
 	if config == nil {
 		return fmt.Errorf("vulkan: surface configuration is nil")
@@ -334,6 +506,11 @@ func (s *Surface) Configure(device hal.Device, config *hal.SurfaceConfiguration)
 // On Vulkan, the driver may clamp the requested extent to its supported range
 // (e.g., on X11 HiDPI). Returns (0, 0) if no swapchain is configured.
 func (s *Surface) ActualExtent() (width, height uint32) {
+	if s == nil {
+		return 0, 0
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.swapchain == nil {
 		return 0, 0
 	}
@@ -345,21 +522,19 @@ func (s *Surface) Unconfigure(_ hal.Device) {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.swapchain != nil {
 		swapchain := s.swapchain
 		if err := swapchain.destroyWithError(); err != nil {
 			hal.Logger().Error("vulkan: failed to destroy swapchain during unconfigure", "error", err)
 			return
 		}
-		if s.device != nil && s.device.queue != nil {
-			s.device.queue.mu.Lock()
-			if s.device.queue.activeSwapchain == swapchain {
-				s.device.queue.activeSwapchain = nil
-				s.device.queue.acquireUsed = false
-			}
-			s.device.queue.mu.Unlock()
-		}
+		s.clearActiveSwapchain(swapchain)
 		s.swapchain = nil
+	}
+	if s.device != nil {
+		s.device.unregisterConfiguredSurface(s)
 	}
 	s.device = nil
 }
@@ -369,6 +544,11 @@ func (s *Surface) Unconfigure(_ hal.Device) {
 func (s *Surface) AcquireTexture(_ hal.Fence) (*hal.AcquiredSurfaceTexture, error) {
 	if s == nil {
 		return nil, fmt.Errorf("vulkan: surface is nil")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.destroyRequested || s.handle == 0 {
+		return nil, hal.ErrSurfaceLost
 	}
 	if err := s.validatePlatform(); err != nil {
 		return nil, err
@@ -408,6 +588,8 @@ func (s *Surface) DiscardTexture(_ hal.SurfaceTexture) {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.swapchain != nil && s.swapchain.imageAcquired {
 		s.swapchain.markBroken(fmt.Errorf("vulkan: acquired surface texture was discarded without presentation"))
 		if s.device != nil && s.device.queue != nil {
@@ -426,26 +608,107 @@ func (s *Surface) Destroy() {
 	if s == nil {
 		return
 	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.destroyRequested = true
 	if s.swapchain != nil {
 		swapchain := s.swapchain
 		if err := swapchain.destroyWithError(); err != nil {
 			hal.Logger().Error("vulkan: failed to destroy swapchain", "error", err)
+			// Keep the surface registered. Device.Destroy will either drain the
+			// swapchain or abandon it after device loss, then complete this pending
+			// surface destruction without using a dead VkDevice.
 			return
 		}
-		if s.device != nil && s.device.queue != nil {
-			s.device.queue.mu.Lock()
-			if s.device.queue.activeSwapchain == swapchain {
-				s.device.queue.activeSwapchain = nil
-				s.device.queue.acquireUsed = false
-			}
-			s.device.queue.mu.Unlock()
-		}
+		s.clearActiveSwapchain(swapchain)
 		s.swapchain = nil
 	}
-	if s.handle != 0 && s.instance != nil {
-		s.instance.cmds.DestroySurfaceKHR(s.instance.handle, s.handle, nil)
-		s.handle = 0
+	if s.device != nil {
+		s.device.unregisterConfiguredSurface(s)
 	}
+	s.device = nil
+	s.destroySurfaceHandleLocked()
+}
+
+func (s *Surface) clearActiveSwapchain(swapchain *Swapchain) {
+	if s == nil || s.device == nil || s.device.queue == nil {
+		return
+	}
+	s.device.queue.mu.Lock()
+	if s.device.queue.activeSwapchain == swapchain {
+		s.device.queue.activeSwapchain = nil
+		s.device.queue.acquireUsed = false
+	}
+	s.device.queue.mu.Unlock()
+}
+
+func (s *Surface) destroySurfaceHandle() {
+	if s == nil {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.destroySurfaceHandleLocked()
+}
+
+func (s *Surface) destroySurfaceHandleLocked() {
+	instance := s.instance
+	if s.handle == 0 {
+		if instance != nil {
+			instance.unregisterSurface(s)
+		}
+		return
+	}
+	if s.instance == nil || s.instance.handle == 0 {
+		hal.Logger().Error("vulkan: cannot destroy surface after its instance")
+		return
+	}
+	s.instance.cmds.DestroySurfaceKHR(s.instance.handle, s.handle, nil)
+	s.handle = 0
+	instance.unregisterSurface(s)
+}
+
+// releaseConfiguredDevice is called only by Device.Destroy after its single
+// device-wide idle attempt. It disconnects the swapchain before VkDevice is
+// destroyed, while preserving the VkSurface until its instance is released.
+func (s *Surface) releaseConfiguredDevice(device *Device, drained bool) bool {
+	if s == nil || device == nil {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.device != device {
+		return false
+	}
+	swapchain := s.swapchain
+	childrenReleased := swapchain == nil
+	s.clearActiveSwapchain(swapchain)
+	if swapchain != nil {
+		if drained {
+			if err := swapchain.destroyResourcesAfterIdle(); err != nil {
+				hal.Logger().Error("vulkan: failed to release drained swapchain resources", "error", err)
+				swapchain.abandonDeviceResources()
+			} else {
+				if swapchain.handle != 0 {
+					vkDestroySwapchainKHR(device, swapchain.handle, nil)
+					swapchain.handle = 0
+				}
+				swapchain.destroyed = true
+				swapchain.broken = true
+				swapchain.device = nil
+				swapchain.surface = nil
+				childrenReleased = true
+			}
+		} else {
+			swapchain.abandonDeviceResources()
+		}
+	}
+	s.swapchain = nil
+	s.device = nil
+	if s.destroyRequested && childrenReleased {
+		s.destroySurfaceHandleLocked()
+	}
+	return s.destroyRequested && !childrenReleased
 }
 
 // Helper functions
@@ -472,7 +735,7 @@ func requireVulkan12(cmds *vk.Commands) (uint32, error) {
 	}
 	var version uint32
 	if result := cmds.EnumerateInstanceVersion(&version); result != vk.Success {
-		return 0, fmt.Errorf("vulkan: vkEnumerateInstanceVersion failed: %d", result)
+		return 0, mapVulkanResult("vkEnumerateInstanceVersion", result)
 	}
 	if err := validateVulkanVersion(version); err != nil {
 		return 0, err
@@ -489,27 +752,33 @@ func validateVulkanVersion(version uint32) error {
 }
 
 func enumerateInstanceExtensions(cmds *vk.Commands) (map[string]struct{}, error) {
-	var count uint32
-	result := cmds.EnumerateInstanceExtensionProperties(0, &count, nil)
-	if result != vk.Success && result != vk.Incomplete {
-		return nil, fmt.Errorf("count query failed: %d", result)
-	}
-	for attempt := 0; attempt < 3; attempt++ {
+	return enumerateInstanceExtensionsWith(func(count *uint32, properties *vk.ExtensionProperties) vk.Result {
+		return cmds.EnumerateInstanceExtensionProperties(0, count, properties)
+	})
+}
+
+func enumerateInstanceExtensionsWith(query func(count *uint32, properties *vk.ExtensionProperties) vk.Result) (map[string]struct{}, error) {
+	const attempts = 3
+	for attempt := 0; attempt < attempts; attempt++ {
+		var count uint32
+		result := query(&count, nil)
+		if result != vk.Success && result != vk.Incomplete {
+			return nil, fmt.Errorf("count query: %w", mapVulkanResult("vkEnumerateInstanceExtensionProperties", result))
+		}
 		if count == 0 {
+			if result == vk.Incomplete {
+				continue
+			}
 			return map[string]struct{}{}, nil
 		}
 		properties := make([]vk.ExtensionProperties, count)
 		returned := count
-		result = cmds.EnumerateInstanceExtensionProperties(0, &returned, &properties[0])
+		result = query(&returned, &properties[0])
 		if result == vk.Incomplete || returned > uint32(len(properties)) {
-			result = cmds.EnumerateInstanceExtensionProperties(0, &count, nil)
-			if result != vk.Success && result != vk.Incomplete {
-				return nil, fmt.Errorf("retry count query failed: %d", result)
-			}
 			continue
 		}
 		if result != vk.Success {
-			return nil, fmt.Errorf("property query failed: %d", result)
+			return nil, fmt.Errorf("property query: %w", mapVulkanResult("vkEnumerateInstanceExtensionProperties", result))
 		}
 		available := make(map[string]struct{}, returned)
 		for _, property := range properties[:returned] {
@@ -517,7 +786,7 @@ func enumerateInstanceExtensions(cmds *vk.Commands) (map[string]struct{}, error)
 		}
 		return available, nil
 	}
-	return nil, fmt.Errorf("extension list remained incomplete")
+	return nil, fmt.Errorf("vulkan: vkEnumerateInstanceExtensionProperties returned an unstable count after %d attempts", attempts)
 }
 
 func selectInstanceExtensions(available map[string]struct{}, platformExtension string, debug bool) (extensions []string, surfaceEnabled bool) {
@@ -673,18 +942,13 @@ func limitsFromProps(props *vk.PhysicalDeviceProperties) gputypes.Limits {
 // isLayerAvailable checks if a Vulkan instance layer is available.
 // Used to gracefully skip validation layers when Vulkan SDK is not installed.
 func isLayerAvailable(cmds *vk.Commands, layerName string) bool {
-	// Get layer count
-	var count uint32
-	cmds.EnumerateInstanceLayerProperties(&count, nil)
-	if count == 0 {
+	layers, err := enumerateInstanceLayersWith(func(count *uint32, layers *vk.LayerProperties) vk.Result {
+		return cmds.EnumerateInstanceLayerProperties(count, layers)
+	})
+	if err != nil {
+		hal.Logger().Warn("vulkan: validation layer enumeration failed", "error", err)
 		return false
 	}
-
-	// Get layer properties
-	layers := make([]vk.LayerProperties, count)
-	cmds.EnumerateInstanceLayerProperties(&count, &layers[0])
-
-	// Check if requested layer is available
 	for i := range layers {
 		name := cStringToGo(layers[i].LayerName[:])
 		if name == layerName {
@@ -692,4 +956,32 @@ func isLayerAvailable(cmds *vk.Commands, layerName string) bool {
 		}
 	}
 	return false
+}
+
+func enumerateInstanceLayersWith(query func(count *uint32, layers *vk.LayerProperties) vk.Result) ([]vk.LayerProperties, error) {
+	const attempts = 3
+	for attempt := 0; attempt < attempts; attempt++ {
+		var count uint32
+		result := query(&count, nil)
+		if result != vk.Success && result != vk.Incomplete {
+			return nil, fmt.Errorf("vulkan: instance layer count: %w", mapVulkanResult("vkEnumerateInstanceLayerProperties", result))
+		}
+		if count == 0 {
+			if result == vk.Incomplete {
+				continue
+			}
+			return nil, nil
+		}
+		layers := make([]vk.LayerProperties, count)
+		returned := count
+		result = query(&returned, &layers[0])
+		if result != vk.Success && result != vk.Incomplete {
+			return nil, mapVulkanResult("vkEnumerateInstanceLayerProperties", result)
+		}
+		if result == vk.Incomplete || returned > uint32(len(layers)) {
+			continue
+		}
+		return layers[:returned], nil
+	}
+	return nil, fmt.Errorf("vulkan: vkEnumerateInstanceLayerProperties returned an unstable count after %d attempts", attempts)
 }

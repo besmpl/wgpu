@@ -7,6 +7,7 @@ package vulkan
 
 import (
 	"fmt"
+	"sync"
 	"unsafe"
 
 	"github.com/go-webgpu/goffi/ffi"
@@ -16,8 +17,8 @@ import (
 )
 
 type platformInstanceState struct {
-	windows           windowGenerationState
-	androidSDKVersion uint32
+	windows   *windowGenerationState
+	swapchain swapchainPlatformPolicy
 }
 
 type platformSurfaceState struct {
@@ -35,14 +36,31 @@ func newPlatformInstanceState(desc *hal.InstanceDescriptor) (platformInstanceSta
 	if sdk < 29 {
 		return platformInstanceState{}, fmt.Errorf("vulkan: Android API 29 or newer is required, device reports %d", sdk)
 	}
-	return platformInstanceState{androidSDKVersion: sdk}, nil
+	return platformInstanceState{
+		windows:   &windowGenerationState{},
+		swapchain: androidSwapchainPlatformPolicy(sdk),
+	}, nil
 }
 
+var (
+	androidSDKVersionOnce sync.Once
+	androidSDKVersion     uint32
+	androidSDKVersionErr  error
+)
+
 func queryAndroidSDKVersion() (uint32, error) {
+	androidSDKVersionOnce.Do(func() {
+		androidSDKVersion, androidSDKVersionErr = loadAndroidSDKVersion()
+	})
+	return androidSDKVersion, androidSDKVersionErr
+}
+
+func loadAndroidSDKVersion() (uint32, error) {
 	handle, err := ffi.LoadLibrary("libc.so")
 	if err != nil {
 		return 0, err
 	}
+	defer func() { _ = ffi.FreeLibrary(handle) }()
 	fn, err := ffi.GetSymbol(handle, "android_get_device_api_level")
 	if err != nil {
 		return 0, err
@@ -62,15 +80,21 @@ func queryAndroidSDKVersion() (uint32, error) {
 }
 
 func (p *platformInstanceState) canCreateSurface(generation uint64) bool {
+	if p == nil || p.windows == nil {
+		return false
+	}
 	return p.windows.canCreate(generation)
 }
 
 func (p *platformInstanceState) commitSurface(generation uint64) bool {
+	if p == nil || p.windows == nil {
+		return false
+	}
 	return p.windows.commit(generation)
 }
 
 func (p *platformInstanceState) validateSurface(generation uint64) error {
-	if !p.windows.isCurrent(generation) {
+	if p == nil || p.windows == nil || !p.windows.isCurrent(generation) {
 		return hal.ErrSurfaceLost
 	}
 	return nil

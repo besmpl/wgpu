@@ -108,6 +108,56 @@ type Device struct {
 	// Vulkan object creation (PERF-VK-001). Not thread-safe — setObjectName
 	// is only called during resource creation which is single-threaded per device.
 	debugNameBuf []byte
+
+	// configuredSurfaces contains only surfaces with a live swapchain owned by
+	// this device. Device destruction drains those swapchains before destroying
+	// VkDevice so a later Surface.Destroy never calls Vulkan with a dead handle.
+	surfaceMu          sync.Mutex
+	configuredSurfaces map[*Surface]struct{}
+	destroying         bool
+}
+
+func (d *Device) registerConfiguredSurface(surface *Surface) error {
+	if d == nil || surface == nil {
+		return fmt.Errorf("vulkan: cannot register a nil configured surface")
+	}
+	d.surfaceMu.Lock()
+	defer d.surfaceMu.Unlock()
+	if d.destroying || d.handle == 0 {
+		return hal.ErrDeviceLost
+	}
+	if d.configuredSurfaces == nil {
+		d.configuredSurfaces = make(map[*Surface]struct{})
+	}
+	d.configuredSurfaces[surface] = struct{}{}
+	return nil
+}
+
+func (d *Device) unregisterConfiguredSurface(surface *Surface) {
+	if d == nil || surface == nil {
+		return
+	}
+	d.surfaceMu.Lock()
+	delete(d.configuredSurfaces, surface)
+	d.surfaceMu.Unlock()
+}
+
+func (d *Device) beginDestroy() ([]*Surface, bool) {
+	if d == nil {
+		return nil, false
+	}
+	d.surfaceMu.Lock()
+	defer d.surfaceMu.Unlock()
+	if d.destroying || d.handle == 0 {
+		return nil, false
+	}
+	d.destroying = true
+	surfaces := make([]*Surface, 0, len(d.configuredSurfaces))
+	for surface := range d.configuredSurfaces {
+		surfaces = append(surfaces, surface)
+	}
+	clear(d.configuredSurfaces)
+	return surfaces, true
 }
 
 // initAllocator initializes the memory allocator for this device.
@@ -1476,12 +1526,26 @@ func (d *Device) GetFenceStatus(fence hal.Fence) (bool, error) {
 
 // Destroy releases the device.
 func (d *Device) Destroy() {
-	// Wait for all in-flight frames to complete before destroying resources.
-	// Without this, fences may still be in use by the GPU, causing
-	// "vkResetFences: pFences[0] is in use" validation errors.
-	// Both paths (timeline and binary pool) are handled by waitForLatest.
-	if d.timelineFence != nil {
-		_ = d.timelineFence.waitForLatest(d.cmds, d.handle, 5_000_000_000)
+	surfaces, ok := d.beginDestroy()
+	if !ok {
+		return
+	}
+
+	// One device-wide idle establishes the lifetime guarantee for every
+	// configured surface and device-owned synchronization object. If the device
+	// is already lost, abandon the Go-side swapchain handles and let
+	// vkDestroyDevice reclaim their native storage.
+	drained := false
+	if result := d.cmds.DeviceWaitIdle(d.handle); result == vk.Success {
+		drained = true
+	} else {
+		hal.Logger().Error("vulkan: device drain failed during destroy", "error", mapVulkanResult("vkDeviceWaitIdle", result))
+	}
+	pendingSurfaceDestroy := make([]*Surface, 0, len(surfaces))
+	for _, surface := range surfaces {
+		if surface.releaseConfiguredDevice(d, drained) {
+			pendingSurfaceDestroy = append(pendingSurfaceDestroy, surface)
+		}
 	}
 
 	// Destroy unified fence (timeline semaphore or fencePool).
@@ -1517,6 +1581,15 @@ func (d *Device) Destroy() {
 	if d.handle != 0 {
 		vkDestroyDevice(d.handle, nil)
 		d.handle = 0
+	}
+	// A failed drain leaves native swapchains to vkDestroyDevice. Only after the
+	// device is gone is it valid to release a pending VkSurfaceKHR.
+	for _, surface := range pendingSurfaceDestroy {
+		surface.destroySurfaceHandle()
+	}
+	if d.instance != nil {
+		d.instance.unregisterDevice(d)
+		d.instance = nil
 	}
 }
 

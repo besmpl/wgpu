@@ -41,6 +41,9 @@ func (q *Queue) Submit(commandBuffers ...*CommandBuffer) (uint64, error) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
+	if q.device == nil || q.device.released.Load() {
+		return 0, ErrReleased
+	}
 	if q.hal == nil {
 		return 0, fmt.Errorf("wgpu: queue not available")
 	}
@@ -197,7 +200,9 @@ func (q *Queue) postSubmit(subIdx uint64, commandBuffers []*CommandBuffer) {
 // Poll returns the last completed submission index. Non-blocking.
 // All submissions with index <= the returned value have been completed by the GPU.
 func (q *Queue) Poll() uint64 {
-	if q.hal == nil {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.device == nil || q.device.released.Load() || q.hal == nil {
 		return 0
 	}
 	return q.hal.PollCompleted()
@@ -225,6 +230,9 @@ func (q *Queue) WriteBuffer(buffer *Buffer, offset uint64, data []byte) error {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
+	if q.device == nil || q.device.released.Load() {
+		return ErrReleased
+	}
 	if q.hal == nil || buffer == nil {
 		return fmt.Errorf("wgpu: WriteBuffer: queue or buffer is nil")
 	}
@@ -292,6 +300,9 @@ func (q *Queue) WriteTexture(dst *ImageCopyTexture, data []byte, layout *ImageDa
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
+	if q.device == nil || q.device.released.Load() {
+		return ErrReleased
+	}
 	if q.hal == nil || dst == nil {
 		return fmt.Errorf("wgpu: WriteTexture: queue or destination is nil")
 	}
@@ -334,6 +345,11 @@ func (q *Queue) WriteTexture(dst *ImageCopyTexture, data []byte, layout *ImageDa
 //
 // Only meaningful on Vulkan — other backends are no-ops.
 func (q *Queue) SetSwapchainSuppressed(suppressed bool) {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	if q.device == nil || q.device.released.Load() {
+		return
+	}
 	if q.hal != nil {
 		q.hal.SetSwapchainSuppressed(suppressed)
 	}
@@ -417,4 +433,18 @@ func (q *Queue) release() {
 		q.pending.destroy()
 		q.pending = nil
 	}
+}
+
+// invalidate severs retained public Queue wrappers from native objects after
+// their owning Device has completed teardown.
+func (q *Queue) invalidate() {
+	if q == nil {
+		return
+	}
+	q.mu.Lock()
+	q.hal = nil
+	q.halDevice = nil
+	q.device = nil
+	q.pending = nil
+	q.mu.Unlock()
 }

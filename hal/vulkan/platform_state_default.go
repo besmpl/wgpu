@@ -7,11 +7,13 @@ package vulkan
 
 import "github.com/gogpu/wgpu/hal"
 
-type platformInstanceState struct{}
+type platformInstanceState struct {
+	swapchain swapchainPlatformPolicy
+}
 type platformSurfaceState struct{}
 
 func newPlatformInstanceState(_ *hal.InstanceDescriptor) (platformInstanceState, error) {
-	return platformInstanceState{}, nil
+	return platformInstanceState{swapchain: defaultSwapchainPlatformPolicy()}, nil
 }
 
 func (s *Surface) validatePlatform() error { return nil }

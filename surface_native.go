@@ -37,8 +37,9 @@ type Surface struct {
 //   - macOS: displayHandle=0, windowHandle=NSView*
 //   - Linux/X11: displayHandle=Display*, windowHandle=Window
 //   - Linux/Wayland: displayHandle=wl_display*, windowHandle=wl_surface*
+//   - Android: displayHandle=monotonic window generation, windowHandle=ANativeWindow*
 func (i *Instance) CreateSurface(displayHandle, windowHandle uintptr) (*Surface, error) {
-	if i.released {
+	if i.isReleased() {
 		return nil, ErrReleased
 	}
 
@@ -62,14 +63,19 @@ func (i *Instance) CreateSurface(displayHandle, windowHandle uintptr) (*Surface,
 	}
 
 	coreSurface := core.NewSurface(halSurface, "")
-	return &Surface{
+	surface := &Surface{
 		core:           coreSurface,
 		instance:       i,
 		displayHandle:  displayHandle,
 		windowHandle:   windowHandle,
 		currentBackend: initialBackend,
 		surfaceCreated: true,
-	}, nil
+	}
+	if err := i.adoptSurface(surface); err != nil {
+		halSurface.Destroy()
+		return nil, err
+	}
+	return surface, nil
 }
 
 // Configure configures the surface for presentation.
@@ -180,6 +186,9 @@ func (s *Surface) PresentWithDamage(texture *SurfaceTexture, damageRects []image
 //
 // Pass nil to remove the hook.
 func (s *Surface) SetPrepareFrame(fn core.PrepareFrameFunc) {
+	if s == nil || s.released || s.core == nil {
+		return
+	}
 	s.core.SetPrepareFrame(fn)
 }
 
@@ -245,13 +254,11 @@ func (s *Surface) WritePixels(data []byte, width, height uint32) error {
 	return fmt.Errorf("wgpu: WritePixels not supported on this backend")
 }
 
-// ActualExtent returns the actual swapchain dimensions after driver clamping.
+// ActualExtent returns the dimensions selected for the native swapchain.
 //
-// On Vulkan, the driver may clamp the requested extent to its supported range
-// (e.g., on X11 HiDPI where the compositor reports physical pixels that differ
-// from the application's logical pixels). The returned values reflect what the
-// swapchain was actually created with, which may differ from the configured
-// SurfaceConfiguration.Width/Height.
+// On Vulkan, a fixed CurrentExtent is authoritative (as is common on Android).
+// Otherwise, the requested extent is clamped to the supported range. The
+// returned values may therefore differ from SurfaceConfiguration.Width/Height.
 //
 // On non-Vulkan backends (DX12, Metal, GLES, Software), the returned values
 // match the configured dimensions since those backends do not clamp the extent.
@@ -305,6 +312,9 @@ func (s *Surface) ensureHALSurface(backend gputypes.Backend) error {
 // HAL returns the underlying HAL surface for backward compatibility.
 // Prefer using Surface methods instead of direct HAL access.
 func (s *Surface) HAL() hal.Surface {
+	if s == nil || s.released || s.core == nil {
+		return nil
+	}
 	return s.core.RawSurface()
 }
 
@@ -314,8 +324,16 @@ func (s *Surface) Release() {
 		return
 	}
 	s.released = true
-	s.core.RawSurface().Destroy()
+	if s.core != nil {
+		if raw := s.core.RawSurface(); raw != nil {
+			raw.Destroy()
+		}
+	}
 	s.core = nil
+	if s.instance != nil {
+		s.instance.unregisterSurface(s)
+		s.instance = nil
+	}
 }
 
 // SurfaceTexture is a texture acquired from a surface for rendering.

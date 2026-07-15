@@ -98,11 +98,6 @@ func TestValidateSurfaceSnapshotRejectsIncompleteCapabilities(t *testing.T) {
 	}
 
 	snapshot = validSwapchainSnapshot()
-	snapshot.capabilities.CurrentTransform = 0
-	if _, _, _, _, err := validateSurfaceSnapshot(snapshot, config); err == nil {
-		t.Fatal("empty current transform was accepted")
-	}
-
 	if _, _, _, _, err := validateSurfaceSnapshot(snapshot, nil); err == nil {
 		t.Fatal("nil surface configuration was accepted")
 	}
@@ -129,6 +124,81 @@ func TestFormatSelectionPreservesNonlinearPreferenceAndExactPair(t *testing.T) {
 	}
 	if selected.ColorSpace != vk.ColorSpaceDisplayP3NonlinearExt {
 		t.Fatalf("selected color space = %v, want exact non-sRGB pair", selected.ColorSpace)
+	}
+}
+
+func TestFormatSelectionMatchesRustWGPUFloatColorSpace(t *testing.T) {
+	snapshot := validSwapchainSnapshot()
+	snapshot.formats = []vk.SurfaceFormatKHR{
+		{Format: vk.FormatR16g16b16a16Sfloat, ColorSpace: vk.ColorSpaceSrgbNonlinearKhr},
+		{Format: vk.FormatR16g16b16a16Sfloat, ColorSpace: vk.ColorSpaceExtendedSrgbLinearExt},
+	}
+	selected, err := snapshot.formatFor(gputypes.TextureFormatRGBA16Float)
+	if err != nil {
+		t.Fatalf("formatFor(RGBA16Float) error: %v", err)
+	}
+	if selected.ColorSpace != vk.ColorSpaceExtendedSrgbLinearExt {
+		t.Fatalf("selected color space = %v, want extended sRGB linear", selected.ColorSpace)
+	}
+
+	snapshot.formats = snapshot.formats[:1]
+	selected, err = snapshot.formatFor(gputypes.TextureFormatRGBA16Float)
+	if err != nil {
+		t.Fatalf("formatFor(RGBA16Float fallback) error: %v", err)
+	}
+	if selected.ColorSpace != vk.ColorSpaceSrgbNonlinearKhr {
+		t.Fatalf("fallback color space = %v, want exact reported pair", selected.ColorSpace)
+	}
+}
+
+func TestSelectSwapchainExtentUsesFixedCurrentExtent(t *testing.T) {
+	capabilities := vk.SurfaceCapabilitiesKHR{
+		CurrentExtent:  vk.Extent2D{Width: 2400, Height: 1080},
+		MinImageExtent: vk.Extent2D{Width: 1, Height: 1},
+		MaxImageExtent: vk.Extent2D{Width: 4096, Height: 4096},
+	}
+	extent, err := selectSwapchainExtent(capabilities, 800, 600)
+	if err != nil {
+		t.Fatalf("selectSwapchainExtent() error: %v", err)
+	}
+	if extent != capabilities.CurrentExtent {
+		t.Fatalf("selected extent = %+v, want fixed current extent %+v", extent, capabilities.CurrentExtent)
+	}
+}
+
+func TestSelectSwapchainExtentClampsApplicationExtent(t *testing.T) {
+	capabilities := vk.SurfaceCapabilitiesKHR{
+		CurrentExtent:  vk.Extent2D{Width: undefinedSurfaceExtent, Height: undefinedSurfaceExtent},
+		MinImageExtent: vk.Extent2D{Width: 64, Height: 32},
+		MaxImageExtent: vk.Extent2D{Width: 1920, Height: 1080},
+	}
+	extent, err := selectSwapchainExtent(capabilities, 4096, 1)
+	if err != nil {
+		t.Fatalf("selectSwapchainExtent() error: %v", err)
+	}
+	want := (vk.Extent2D{Width: 1920, Height: 32})
+	if extent != want {
+		t.Fatalf("selected extent = %+v, want %+v", extent, want)
+	}
+}
+
+func TestSelectSwapchainExtentRejectsInconsistentCapabilities(t *testing.T) {
+	tests := []vk.SurfaceCapabilitiesKHR{
+		{
+			CurrentExtent:  vk.Extent2D{Width: undefinedSurfaceExtent, Height: 100},
+			MinImageExtent: vk.Extent2D{Width: 1, Height: 1},
+			MaxImageExtent: vk.Extent2D{Width: 200, Height: 200},
+		},
+		{
+			CurrentExtent:  vk.Extent2D{Width: 100, Height: 100},
+			MinImageExtent: vk.Extent2D{Width: 200, Height: 1},
+			MaxImageExtent: vk.Extent2D{Width: 100, Height: 200},
+		},
+	}
+	for _, capabilities := range tests {
+		if _, err := selectSwapchainExtent(capabilities, 100, 100); err == nil {
+			t.Fatalf("inconsistent capabilities were accepted: %+v", capabilities)
+		}
 	}
 }
 

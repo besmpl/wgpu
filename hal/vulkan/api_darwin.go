@@ -23,6 +23,13 @@ func platformSurfaceExtension() string {
 //   - _: unused first parameter for API consistency with other platforms
 //   - metalLayer: Pointer to CAMetalLayer
 func (i *Instance) CreateSurface(_, metalLayer uintptr) (hal.Surface, error) {
+	if err := i.beginResourceCreation(); err != nil {
+		return nil, err
+	}
+	defer i.endResourceCreation()
+	if !i.surfaceEnabled || !i.cmds.HasWSIQueries() || !i.cmds.HasCreateMetalSurfaceEXT() {
+		return nil, fmt.Errorf("vulkan: Metal surface WSI is unavailable")
+	}
 	createInfo := vk.MetalSurfaceCreateInfoEXT{
 		SType: vk.StructureTypeMetalSurfaceCreateInfoExt,
 	}
@@ -33,10 +40,6 @@ func (i *Instance) CreateSurface(_, metalLayer uintptr) (hal.Surface, error) {
 	// Previous bug: &metalLayer stored Go stack address instead of CAMetalLayer* value.
 	*(*uintptr)(unsafe.Pointer(&createInfo.PLayer)) = metalLayer
 
-	if !i.cmds.HasCreateMetalSurfaceEXT() {
-		return nil, fmt.Errorf("vulkan: vkCreateMetalSurfaceEXT not available (VK_EXT_metal_surface extension not loaded)")
-	}
-
 	var surface vk.SurfaceKHR
 	result := i.cmds.CreateMetalSurfaceEXT(i.handle, &createInfo, nil, &surface)
 	if result != vk.Success {
@@ -46,8 +49,8 @@ func (i *Instance) CreateSurface(_, metalLayer uintptr) (hal.Surface, error) {
 		return nil, fmt.Errorf("vulkan: vkCreateMetalSurfaceEXT returned success but surface is null")
 	}
 
-	return &Surface{
+	return i.adoptSurface(&Surface{
 		handle:   surface,
 		instance: i,
-	}, nil
+	})
 }
