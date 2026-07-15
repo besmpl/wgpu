@@ -86,12 +86,13 @@ Key interfaces (defined in `hal/api.go`):
 
 ### `hal/vulkan/` — Vulkan Backend
 
-Pure Go Vulkan 1.0+ implementation using `cgo_import_dynamic` for function loading.
+Pure Go Vulkan implementation with a Vulkan 1.2 floor and goffi-based dynamic
+function loading.
 
 - `vk/` — Low-level Vulkan bindings (generated types, function signatures, loader)
 - `memory/` — GPU memory allocator (buddy allocation, `maxMemoryAllocationSize` enforcement)
 - Command encoder: free list of pre-allocated VkCommandBuffers (batch 16), `vkResetCommandPool` for batch reset (Rust wgpu-hal parity)
-- Platform surface: VkWin32, VkXlib, VkMetal
+- Platform surface: VkWin32, VkXlib, VkMetal, and an Android/arm64 API 29+ preview
 
 ### `hal/metal/` — Metal Backend
 
@@ -206,6 +207,7 @@ Platform selection (`hal/allbackends/`):
 | Windows | Vulkan, DX12, GLES, Software, Noop |
 | macOS | Metal, Software, Noop |
 | Linux | Vulkan, GLES, Software, Noop |
+| Android/arm64 preview | Vulkan |
 
 Backend priority for auto-selection: Vulkan > Metal > DX12 > GLES > Software > Noop.
 
@@ -301,5 +303,5 @@ gogpu (app framework) / gg (2D graphics)
 External dependencies:
 - `github.com/gogpu/naga` — shader compiler (WGSL → SPIR-V / MSL / GLSL / HLSL / DXIL), Pure Go
 - `github.com/gogpu/gputypes` v0.5.0 — shared WebGPU type definitions
-- `github.com/go-webgpu/goffi` v0.5.1 — Pure Go FFI for Vulkan/Metal symbol loading
+- `github.com/go-webgpu/goffi` v0.6.0 — Pure Go FFI for Vulkan/Metal symbol loading
 - `golang.org/x/sys` v0.44.0 — platform syscall definitions

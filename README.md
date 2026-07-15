@@ -31,7 +31,7 @@
 | Category | Capabilities |
 |----------|--------------|
 | **Backends** | Vulkan, Metal, DirectX 12, OpenGL ES, Software, **Browser WebGPU**, **Rust FFI** |
-| **Platforms** | Windows, Linux, macOS, iOS, **Browser (WASM)** |
+| **Platforms** | Windows, Linux, macOS, iOS, **Android/arm64 preview**, **Browser (WASM)** |
 | **API** | WebGPU-compliant (W3C specification) |
 | **Shaders** | WGSL via gogpu/naga compiler (SPIR-V, HLSL, MSL, GLSL, DXIL) |
 | **Compute** | Full compute shader support, GPU→CPU readback |
@@ -253,6 +253,7 @@ import _ "github.com/gogpu/wgpu/hal/allbackends"
 // - Windows: Vulkan, DX12, GLES, Software
 // - Linux:   Vulkan, GLES, Software
 // - macOS:   Metal, Software
+// - Android: Vulkan only (arm64/API 29+ preview)
 ```
 
 ---
@@ -261,15 +262,17 @@ import _ "github.com/gogpu/wgpu/hal/allbackends"
 
 ### Platform Support
 
-| Backend | Windows | Linux | macOS | iOS | Notes |
-|---------|:-------:|:-----:|:-----:|:---:|-------|
-| **Vulkan** | Yes | Yes | Yes | - | MoltenVK on macOS |
-| **Metal** | - | - | Yes | Yes | Native Apple GPU |
-| **DX12** | Yes | - | - | - | Windows 10+ |
-| **GLES** | Yes | Yes | - | - | OpenGL ES 3.0+ |
-| **Software** | Yes | Yes | Yes | Yes | CPU fallback |
+| Backend | Windows | Linux | macOS | iOS | Android | Notes |
+|---------|:-------:|:-----:|:-----:|:---:|:-------:|-------|
+| **Vulkan** | Yes | Yes | Yes | - | Preview | arm64/API 29+; MoltenVK on macOS |
+| **Metal** | - | - | Yes | Yes | - | Native Apple GPU |
+| **DX12** | Yes | - | - | - | - | Windows 10+ |
+| **GLES** | Yes | Yes | - | - | - | OpenGL ES 3.0+ |
+| **Software** | Yes | Yes | Yes | Yes | - | CPU fallback |
 
-**Architectures:** amd64, arm64 (including Windows ARM64 / Snapdragon X)
+**Architectures:** amd64 and arm64. Android is currently an unreleased,
+Vulkan-only arm64/API 29+ preview; see [the Android status and proof
+contract](docs/ANDROID.md).
 
 ### Vulkan Backend
 
@@ -282,7 +285,7 @@ Full Vulkan 1.3 implementation with:
 - wgpu-style swapchain synchronization
 - MSAA render pass with automatic resolve
 - Complete resource management (Buffer, Texture, Pipeline, BindGroup)
-- Surface creation: Win32, X11, Wayland, Metal (MoltenVK)
+- Surface creation: Win32, X11, Wayland, Metal (MoltenVK), Android preview
 - Debug messenger for validation layer error capture (`VK_EXT_debug_utils`)
 - Structured diagnostic logging via `log/slog`
 
