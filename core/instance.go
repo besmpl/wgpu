@@ -21,6 +21,11 @@ import (
 // Thread-safe for concurrent use.
 type Instance struct {
 	mu       sync.RWMutex
+	// surfaceRequestMu serializes surface-aware adapter requests. Deferred GLES
+	// enumeration is intentionally one-shot, so the snapshot that distinguishes
+	// adapters created for the current surface must be taken atomically with that
+	// enumeration.
+	surfaceRequestMu sync.Mutex
 	backends gputypes.Backends
 	flags    gputypes.InstanceFlags
 
@@ -370,6 +375,8 @@ func (i *Instance) RequestAdapterWithSurface(options *gputypes.RequestAdapterOpt
 	if surfaceHint == nil {
 		return i.RequestAdapter(options)
 	}
+	i.surfaceRequestMu.Lock()
+	defer i.surfaceRequestMu.Unlock()
 
 	// Remember which adapters existed before deferred enumeration. Adapters
 	// created by EnumerateAdapters(surfaceHint) are already surface-qualified by
@@ -395,6 +402,7 @@ func (i *Instance) RequestAdapterWithSurface(options *gputypes.RequestAdapterOpt
 	usingMock := i.useMock
 	i.mu.RUnlock()
 	candidates := make([]AdapterID, 0, len(allAdapterIDs))
+	qualifiedIDs := make([]AdapterID, 0, len(allAdapterIDs))
 	for _, adapterID := range allAdapterIDs {
 		adapter, err := hub.GetAdapter(adapterID)
 		if err != nil {
@@ -435,6 +443,7 @@ func (i *Instance) RequestAdapterWithSurface(options *gputypes.RequestAdapterOpt
 			i.surfaceAdapters = append(i.surfaceAdapters, qualifiedID)
 			i.mu.Unlock()
 			candidates = append(candidates, qualifiedID)
+			qualifiedIDs = append(qualifiedIDs, qualifiedID)
 			continue
 		}
 
@@ -449,7 +458,13 @@ func (i *Instance) RequestAdapterWithSurface(options *gputypes.RequestAdapterOpt
 	if len(candidates) == 0 {
 		return AdapterID{}, fmt.Errorf("no adapters compatible with surface")
 	}
-	return selectAdapterIDs(options, candidates)
+	selectedID, err := selectAdapterIDs(options, candidates)
+	for _, qualifiedID := range qualifiedIDs {
+		if err != nil || qualifiedID != selectedID {
+			i.ReleaseSurfaceAdapter(qualifiedID)
+		}
+	}
+	return selectedID, err
 }
 
 // ReleaseSurfaceAdapter releases a request-local adapter created by
@@ -645,6 +660,9 @@ func (i *Instance) HALInstanceMap() map[gputypes.Backend]hal.Instance {
 // This includes unregistering all adapters and destroying HAL instances.
 // After calling Destroy, the instance should not be used.
 func (i *Instance) Destroy() {
+	i.surfaceRequestMu.Lock()
+	defer i.surfaceRequestMu.Unlock()
+
 	i.mu.Lock()
 	defer i.mu.Unlock()
 

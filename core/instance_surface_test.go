@@ -13,6 +13,7 @@ import (
 type surfaceQualificationAdapter struct {
 	compatible bool
 	qualifies  *int
+	destroys   *int
 }
 
 func (a *surfaceQualificationAdapter) Open(_ gputypes.Features, _ gputypes.Limits) (hal.OpenDevice, error) {
@@ -27,7 +28,11 @@ func (a *surfaceQualificationAdapter) SurfaceCapabilities(_ hal.Surface) *hal.Su
 	return nil
 }
 
-func (a *surfaceQualificationAdapter) Destroy() {}
+func (a *surfaceQualificationAdapter) Destroy() {
+	if a.destroys != nil {
+		(*a.destroys)++
+	}
+}
 
 func (a *surfaceQualificationAdapter) QualifySurface(_ hal.Surface) (hal.Adapter, error) {
 	if a.qualifies != nil {
@@ -36,7 +41,87 @@ func (a *surfaceQualificationAdapter) QualifySurface(_ hal.Surface) (hal.Adapter
 	if !a.compatible {
 		return nil, errors.New("surface is not supported")
 	}
-	return &surfaceQualificationAdapter{compatible: true}, nil
+	return &surfaceQualificationAdapter{compatible: true, destroys: a.destroys}, nil
+}
+
+func TestRequestAdapterWithSurfaceReleasesUnselectedQualifiedAdapters(t *testing.T) {
+	GetGlobal().Clear()
+	hub := GetGlobal().Hub()
+
+	destroys := 0
+	firstHAL := &surfaceQualificationAdapter{compatible: true, destroys: &destroys}
+	secondHAL := &surfaceQualificationAdapter{compatible: true, destroys: &destroys}
+	firstID := hub.RegisterAdapter(&Adapter{
+		Info:       gputypes.AdapterInfo{DeviceType: gputypes.DeviceTypeDiscreteGPU, Backend: gputypes.BackendVulkan},
+		Limits:     gputypes.DefaultLimits(),
+		Backend:    gputypes.BackendVulkan,
+		halAdapter: firstHAL,
+	})
+	secondID := hub.RegisterAdapter(&Adapter{
+		Info:       gputypes.AdapterInfo{DeviceType: gputypes.DeviceTypeIntegratedGPU, Backend: gputypes.BackendVulkan},
+		Limits:     gputypes.DefaultLimits(),
+		Backend:    gputypes.BackendVulkan,
+		halAdapter: secondHAL,
+	})
+
+	instance := &Instance{
+		backends: gputypes.BackendsVulkan,
+		adapters: []AdapterID{firstID, secondID},
+	}
+	selectedID, err := instance.RequestAdapterWithSurface(nil, &stubHALSurface{id: 9})
+	if err != nil {
+		t.Fatalf("RequestAdapterWithSurface() error: %v", err)
+	}
+	if len(instance.surfaceAdapters) != 1 {
+		t.Fatalf("surface adapter ownership = %d, want 1", len(instance.surfaceAdapters))
+	}
+	if selectedID != instance.surfaceAdapters[0] {
+		t.Fatalf("selected ID = %v, tracked surface adapter = %v", selectedID, instance.surfaceAdapters[0])
+	}
+	if destroys != 1 {
+		t.Fatalf("qualified adapter destroys after selection = %d, want 1", destroys)
+	}
+
+	instance.ReleaseSurfaceAdapter(selectedID)
+	if destroys != 2 {
+		t.Fatalf("qualified adapter destroys after selected release = %d, want 2", destroys)
+	}
+	instance.Destroy()
+}
+
+func TestRequestAdapterWithSurfaceReleasesQualifiedAdaptersOnSelectionError(t *testing.T) {
+	GetGlobal().Clear()
+	hub := GetGlobal().Hub()
+
+	destroys := 0
+	firstID := hub.RegisterAdapter(&Adapter{
+		Info:       gputypes.AdapterInfo{DeviceType: gputypes.DeviceTypeDiscreteGPU, Backend: gputypes.BackendVulkan},
+		Limits:     gputypes.DefaultLimits(),
+		Backend:    gputypes.BackendVulkan,
+		halAdapter: &surfaceQualificationAdapter{compatible: true, destroys: &destroys},
+	})
+	secondID := hub.RegisterAdapter(&Adapter{
+		Info:       gputypes.AdapterInfo{DeviceType: gputypes.DeviceTypeIntegratedGPU, Backend: gputypes.BackendVulkan},
+		Limits:     gputypes.DefaultLimits(),
+		Backend:    gputypes.BackendVulkan,
+		halAdapter: &surfaceQualificationAdapter{compatible: true, destroys: &destroys},
+	})
+
+	instance := &Instance{
+		backends: gputypes.BackendsVulkan,
+		adapters: []AdapterID{firstID, secondID},
+	}
+	_, err := instance.RequestAdapterWithSurface(&gputypes.RequestAdapterOptions{ForceFallbackAdapter: true}, &stubHALSurface{id: 10})
+	if err == nil {
+		t.Fatal("RequestAdapterWithSurface() unexpectedly selected a non-fallback adapter")
+	}
+	if len(instance.surfaceAdapters) != 0 {
+		t.Fatalf("surface adapter ownership after selection error = %d, want 0", len(instance.surfaceAdapters))
+	}
+	if destroys != 2 {
+		t.Fatalf("qualified adapter destroys after selection error = %d, want 2", destroys)
+	}
+	instance.Destroy()
 }
 
 func TestRequestAdapterWithSurfaceUsesRequestLocalQualification(t *testing.T) {
